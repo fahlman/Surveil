@@ -177,10 +177,31 @@ h1 {
 }
 
 .b-chevron {
-  color: var(--muted);
-  font-size: 11px;
   width: 12px;
-  text-align: center;
+  height: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 12px;
+}
+
+.b-chevron::before {
+  content: "";
+  width: 0;
+  height: 0;
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  border-left: 6px solid var(--muted);
+  transform-origin: 2px 4px;
+  transition: transform 120ms ease;
+}
+
+.b-chevron.expanded::before {
+  transform: rotate(90deg);
+}
+
+.b-chevron.empty::before {
+  visibility: hidden;
 }
 
 .b-summary .b-name {

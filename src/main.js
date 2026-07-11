@@ -59,7 +59,8 @@ function renderBuildings() {
 
     const chevron = document.createElement("span");
     chevron.className = "b-chevron";
-    chevron.textContent = cidrs.length ? (item.open ? "▾" : "▸") : "";
+    chevron.classList.toggle("expanded", item.open);
+    chevron.classList.toggle("empty", cidrs.length === 0);
 
     const name = document.createElement("span");
     name.className = "b-name";
@@ -77,7 +78,7 @@ function renderBuildings() {
     item.addEventListener("toggle", () => {
       if (item.open) expanded.add(b.name);
       else expanded.delete(b.name);
-      chevron.textContent = cidrs.length ? (item.open ? "▾" : "▸") : "";
+      chevron.classList.toggle("expanded", item.open);
     });
 
     const floors = document.createElement("div");
