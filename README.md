@@ -20,7 +20,7 @@ Two JSON files live in the OS app-data folder
 (`~/Library/Application Support/com.fahlsing.surveil/` on macOS,
 `%APPDATA%\com.fahlsing.surveil\` on Windows):
 
-- `buildings.json` — the building map (number, name, abbreviation, floors),
+- `buildings.json` — the building map (name and named private network ranges),
   seeded from an embedded default on first launch and editable in the app.
 - `cameras.json` — the camera inventory with first/last-seen timestamps, updated
   after every scan.
@@ -31,11 +31,11 @@ Each installation defines its own buildings, named areas, and private CIDR
 ranges in the Building Generator. No organization-specific network layout is
 compiled into Surveil.
 
-## Scan modes
+## Scanning
 
-- **Thorough** (default) — probe every building on the whole fleet's VLAN set,
-  so a camera misconfigured onto the wrong VLAN still gets found and flagged.
-- **Fast** — probe each building only on the VLANs it actually has.
+Select any combination of buildings and named ranges, then scan them on the
+chosen TCP port. Surveil limits each scan to 65,534 unique private addresses to
+guard against accidentally selecting an overly broad range.
 
 ## Develop (macOS)
 
@@ -47,8 +47,10 @@ cargo tauri build --debug --bundles app   # produce Surveil.app
 
 ## Ship to Windows
 
-The Windows installer is built by GitHub Actions on a Windows runner (Tauri
-can't cross-build Windows from macOS). Win11 already ships the WebView2 runtime.
+GitHub Actions tests the project and builds NSIS and MSI installers on a Windows
+runner after every push to `main`. Download them from the workflow's
+`Surveil-Windows` artifact. Tauri can't cross-build Windows installers from
+macOS; Windows 11 already includes the WebView2 runtime.
 
 ## Tests
 
