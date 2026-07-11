@@ -28,7 +28,7 @@ Two JSON files live in the OS app-data folder
 ## Network configuration
 
 Each installation defines its own buildings, named areas, and private CIDR
-ranges in the Building Generator. No organization-specific network layout is
+ranges directly in the scan window. No organization-specific network layout is
 compiled into Surveil.
 
 ## Scanning

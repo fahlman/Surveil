@@ -14,13 +14,9 @@ const fmtTime = (secs) => (secs ? new Date(secs * 1000).toLocaleString() : "");
 const locationLabel = (c) =>
   c.building ? (c.area ? `${escapeHtml(c.building)} · ${escapeHtml(c.area)}` : escapeHtml(c.building)) : "—";
 
-// ---- Open the Building Generator window ----
-$("#open-configurator").addEventListener("click", () => {
-  invoke("open_configurator").catch((e) => console.error("open_configurator failed", e));
-});
-
 // ---- Building list: check a whole building or expand to pick floors ----
 let config = { buildings: [] };
+let editingIndex = null;
 let selectedCidrs = new Set();
 let knownCidrs = new Set();
 const expanded = new Set(); // building names currently expanded
@@ -32,11 +28,11 @@ function renderBuildings() {
   root.replaceChildren();
   if (!config.buildings.length) {
     root.innerHTML =
-      '<p class="status">No buildings yet — open the Building Generator to add some.</p>';
+      '<p class="status">No buildings yet — add one to begin.</p>';
     return;
   }
 
-  config.buildings.forEach((b) => {
+  config.buildings.forEach((b, index) => {
     const cidrs = buildingCidrs(b);
     const selected = cidrs.filter((c) => selectedCidrs.has(c)).length;
 
@@ -73,9 +69,7 @@ function renderBuildings() {
     edit.type = "button";
     edit.className = "link edit-link";
     edit.textContent = "Edit";
-    edit.addEventListener("click", () => {
-      invoke("edit_building", { name: b.name }).catch((e) => console.error("edit_building failed", e));
-    });
+    edit.addEventListener("click", () => openEditor(index));
 
     summary.append(cb, chevron, name, edit);
     item.appendChild(summary);
@@ -131,9 +125,141 @@ async function loadBuildings() {
   }
 }
 
-$("#reload-buildings").addEventListener("click", loadBuildings);
-// Refresh the list when returning from the Building Generator window.
-window.addEventListener("focus", loadBuildings);
+// ---- Inline building configuration ----
+const editor = $("#building-editor");
+const editorStatus = $("#editor-status");
+const setConfigStatus = (message, isError = false) => {
+  const status = $("#config-status");
+  status.textContent = message;
+  status.classList.toggle("error", isError);
+};
+
+function addRangeRow(name = "", cidr = "") {
+  const row = document.createElement("div");
+  row.className = "range-row";
+  const nameInput = document.createElement("input");
+  nameInput.className = "range-name";
+  nameInput.type = "text";
+  nameInput.placeholder = "First Floor";
+  nameInput.value = name;
+  const cidrInput = document.createElement("input");
+  cidrInput.className = "range-cidr";
+  cidrInput.type = "text";
+  cidrInput.placeholder = "192.168.10.0/24";
+  cidrInput.value = cidr;
+  const remove = document.createElement("button");
+  remove.className = "link-danger";
+  remove.type = "button";
+  remove.textContent = "Remove";
+  remove.addEventListener("click", () => row.remove());
+  row.append(nameInput, cidrInput, remove);
+  $("#range-list").appendChild(row);
+}
+
+function openEditor(index = null) {
+  editingIndex = index;
+  const building = index === null ? null : config.buildings[index];
+  $("#editor-title").textContent = building ? `Edit ${building.name}` : "Add Building";
+  $("#building-name").value = building?.name || "";
+  $("#range-list").replaceChildren();
+  const ranges = building?.ranges?.length ? building.ranges : [{ name: "", cidr: "" }];
+  ranges.forEach((range) => addRangeRow(range.name || "", range.cidr || ""));
+  $("#save-building").textContent = building ? "Save Changes" : "Add Building";
+  $("#delete-building").hidden = !building;
+  editorStatus.textContent = "";
+  editorStatus.classList.remove("error");
+  editor.hidden = false;
+  expanded.add(building?.name || "");
+  editor.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  $("#building-name").focus();
+}
+
+function closeEditor() {
+  editingIndex = null;
+  editor.hidden = true;
+}
+
+const readRanges = () =>
+  Array.from(document.querySelectorAll("#range-list .range-row"))
+    .map((row) => ({
+      name: row.querySelector(".range-name").value.trim(),
+      cidr: row.querySelector(".range-cidr").value.trim(),
+    }))
+    .filter((range) => range.name || range.cidr);
+
+$("#add-building").addEventListener("click", () => openEditor());
+$("#add-range").addEventListener("click", () => addRangeRow());
+$("#cancel-edit").addEventListener("click", closeEditor);
+
+editor.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const name = $("#building-name").value.trim();
+  const existing = editingIndex === null ? null : config.buildings[editingIndex];
+  const building = { name, ranges: readRanges(), notes: existing?.notes || "" };
+  const before = config.buildings;
+  config.buildings = editingIndex === null
+    ? config.buildings.concat(building)
+    : config.buildings.map((item, index) => index === editingIndex ? building : item);
+  try {
+    await invoke("save_config", { config });
+    closeEditor();
+    await loadBuildings();
+    setConfigStatus(`${name} saved.`);
+  } catch (error) {
+    config.buildings = before;
+    editorStatus.textContent = "Couldn't save: " + error;
+    editorStatus.classList.add("error");
+  }
+});
+
+$("#delete-building").addEventListener("click", async () => {
+  const building = config.buildings[editingIndex];
+  if (!building || !window.confirm(`Delete ${building.name}? This cannot be undone.`)) return;
+  const before = config.buildings;
+  config.buildings = config.buildings.filter((_, index) => index !== editingIndex);
+  try {
+    await invoke("save_config", { config });
+    closeEditor();
+    await loadBuildings();
+    setConfigStatus(`${building.name} deleted.`);
+  } catch (error) {
+    config.buildings = before;
+    editorStatus.textContent = "Couldn't delete: " + error;
+    editorStatus.classList.add("error");
+  }
+});
+
+const importFile = $("#import-file");
+$("#import-btn").addEventListener("click", () => importFile.click());
+importFile.addEventListener("change", () => {
+  const file = importFile.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = async () => {
+    try {
+      const imported = JSON.parse(reader.result);
+      if (!imported || !Array.isArray(imported.buildings)) throw new Error("not a Surveil configuration");
+      await invoke("save_config", { config: imported });
+      closeEditor();
+      await loadBuildings();
+      setConfigStatus(`Imported ${imported.buildings.length} buildings.`);
+    } catch (error) {
+      setConfigStatus("Import failed: " + error, true);
+    } finally {
+      importFile.value = "";
+    }
+  };
+  reader.readAsText(file);
+});
+
+$("#export-btn").addEventListener("click", async () => {
+  try {
+    const path = await invoke("export_config");
+    if (path) setConfigStatus("Exported configuration.");
+  } catch (error) {
+    setConfigStatus("Export failed: " + error, true);
+  }
+});
 
 // ---- Scan (selected buildings/floors) ----
 const scanBtn = $("#scan-btn");

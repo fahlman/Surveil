@@ -184,71 +184,16 @@ async fn ws_discover(app: tauri::AppHandle, timeout: u64) -> Result<WsDiscoveryR
     })
 }
 
-/// A building name the Building Generator should jump to editing on open.
-struct PendingEdit(std::sync::Mutex<Option<String>>);
-
-/// Open (or focus) the Building Generator window. Returns true if it already
-/// existed.
-fn show_configurator(app: &tauri::AppHandle) -> Result<bool, String> {
-    if let Some(existing) = app.get_webview_window("buildings") {
-        existing.set_focus().map_err(|e| e.to_string())?;
-        return Ok(true);
-    }
-    tauri::WebviewWindowBuilder::new(
-        app,
-        "buildings",
-        tauri::WebviewUrl::App("buildings.html".into()),
-    )
-    .title("Building Generator")
-    .inner_size(760.0, 820.0)
-    .min_inner_size(560.0, 500.0)
-    .build()
-    .map_err(|e| e.to_string())?;
-    Ok(false)
-}
-
-#[tauri::command]
-fn open_configurator(app: tauri::AppHandle) -> Result<(), String> {
-    show_configurator(&app).map(|_| ())
-}
-
-/// Open the Building Generator focused on editing one building.
-#[tauri::command]
-fn edit_building(
-    app: tauri::AppHandle,
-    state: tauri::State<PendingEdit>,
-    name: String,
-) -> Result<(), String> {
-    *state.0.lock().map_err(|e| e.to_string())? = Some(name.clone());
-    // Newly-created windows read the pending edit on load; an already-open one
-    // needs a nudge.
-    if show_configurator(&app)? {
-        app.emit("edit-building", name).map_err(|e| e.to_string())?;
-    }
-    Ok(())
-}
-
-/// The Building Generator calls this on load to pick up (and clear) a pending
-/// "edit this building" request.
-#[tauri::command]
-fn take_pending_edit(state: tauri::State<PendingEdit>) -> Option<String> {
-    state.0.lock().ok().and_then(|mut p| p.take())
-}
-
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
-        .manage(PendingEdit(std::sync::Mutex::new(None)))
         .invoke_handler(tauri::generate_handler![
             get_config,
             save_config,
             export_config,
             scan,
-            ws_discover,
-            open_configurator,
-            edit_building,
-            take_pending_edit
+            ws_discover
         ])
         .run(tauri::generate_context!())
         .expect("error while running Surveil");
