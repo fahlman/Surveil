@@ -7,6 +7,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::fs;
+use std::io::Write;
 use std::net::Ipv4Addr;
 use std::path::Path;
 
@@ -18,12 +19,22 @@ use crate::config::{Building, Config, Range};
 pub const CONFIG_FILE: &str = "buildings.json";
 pub const INVENTORY_FILE: &str = "cameras.json";
 
+fn atomic_write(path: &Path, text: &str) -> Result<(), String> {
+    let mut file = atomic_write_file::AtomicWriteFile::options()
+        .open(path)
+        .map_err(|e| format!("open {}: {e}", path.display()))?;
+    file.write_all(text.as_bytes())
+        .map_err(|e| format!("write {}: {e}", path.display()))?;
+    file.commit()
+        .map_err(|e| format!("commit {}: {e}", path.display()))
+}
+
 pub fn load_config(dir: &Path, seed: &str) -> Result<Config, String> {
     let path = dir.join(CONFIG_FILE);
 
     if !path.exists() {
         fs::create_dir_all(dir).map_err(|e| format!("create data dir: {e}"))?;
-        fs::write(&path, seed).map_err(|e| format!("seed {CONFIG_FILE}: {e}"))?;
+        atomic_write(&path, seed).map_err(|e| format!("seed {CONFIG_FILE}: {e}"))?;
         return serde_json::from_str(seed).map_err(|e| format!("parse seed: {e}"));
     }
 
@@ -59,7 +70,7 @@ pub fn load_config(dir: &Path, seed: &str) -> Result<Config, String> {
 pub fn save_config(dir: &Path, config: &Config) -> Result<(), String> {
     fs::create_dir_all(dir).map_err(|e| format!("create data dir: {e}"))?;
     let text = serde_json::to_string_pretty(config).map_err(|e| e.to_string())?;
-    fs::write(dir.join(CONFIG_FILE), text).map_err(|e| format!("write {CONFIG_FILE}: {e}"))
+    atomic_write(&dir.join(CONFIG_FILE), &text)
 }
 
 /// Whether the config's ranges are bare CIDR strings (the previous format)
@@ -69,9 +80,11 @@ fn ranges_are_strings(value: &Value) -> bool {
         .get("buildings")
         .and_then(Value::as_array)
         .and_then(|buildings| {
-            buildings
-                .iter()
-                .find_map(|b| b.get("ranges").and_then(Value::as_array).and_then(|r| r.first()))
+            buildings.iter().find_map(|b| {
+                b.get("ranges")
+                    .and_then(Value::as_array)
+                    .and_then(|r| r.first())
+            })
         })
         .map(Value::is_string)
         .unwrap_or(false)
@@ -194,7 +207,13 @@ fn octet_range(octets: &[String], building_octet: u8, level_code: u8) -> Option<
 }
 
 fn migrate_octet(legacy: OctetConfig) -> Config {
-    let code_for = |label: &str| legacy.levels.iter().find(|l| l.label == label).map(|l| l.code);
+    let code_for = |label: &str| {
+        legacy
+            .levels
+            .iter()
+            .find(|l| l.label == label)
+            .map(|l| l.code)
+    };
     let mut buildings: Vec<Building> = legacy
         .buildings
         .into_iter()
@@ -326,7 +345,7 @@ pub fn load_inventory(dir: &Path) -> Inventory {
 pub fn save_inventory(dir: &Path, inv: &Inventory) -> Result<(), String> {
     fs::create_dir_all(dir).map_err(|e| format!("create data dir: {e}"))?;
     let text = serde_json::to_string_pretty(inv).map_err(|e| e.to_string())?;
-    fs::write(dir.join(INVENTORY_FILE), text).map_err(|e| format!("write {INVENTORY_FILE}: {e}"))
+    atomic_write(&dir.join(INVENTORY_FILE), &text)
 }
 
 /// Diff a scan against the previous inventory. `scanned` is the set of addresses
@@ -458,10 +477,18 @@ mod tests {
     fn diffs_new_present_and_absent() {
         let prev = Inventory {
             last_scan: 100,
-            cameras: vec![record("192.168.50.5", 100, 100), record("192.168.50.6", 100, 100)],
+            cameras: vec![
+                record("192.168.50.5", 100, 100),
+                record("192.168.50.6", 100, 100),
+            ],
         };
         let scanned = scope(&["192.168.50.5", "192.168.50.6", "192.168.50.7"]);
-        let (inv, statuses) = diff(&prev, vec![found("192.168.50.5"), found("192.168.50.7")], &scanned, 200);
+        let (inv, statuses) = diff(
+            &prev,
+            vec![found("192.168.50.5"), found("192.168.50.7")],
+            &scanned,
+            200,
+        );
         let by_ip: HashMap<&str, &CameraStatus> =
             statuses.iter().map(|s| (s.ip.as_str(), s)).collect();
         assert_eq!(by_ip["192.168.50.5"].status, "present");
@@ -474,7 +501,10 @@ mod tests {
     fn out_of_scope_camera_is_not_marked_absent() {
         let prev = Inventory {
             last_scan: 100,
-            cameras: vec![record("192.168.50.5", 100, 100), record("192.168.99.9", 100, 100)],
+            cameras: vec![
+                record("192.168.50.5", 100, 100),
+                record("192.168.99.9", 100, 100),
+            ],
         };
         // Only .5 was in scope this scan; .99.0.9 wasn't scanned.
         let scanned = scope(&["192.168.50.5"]);

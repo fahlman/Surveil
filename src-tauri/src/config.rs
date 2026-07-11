@@ -4,6 +4,7 @@
 //! `buildings.json` holds all the network parameters; this module is
 //! the general parser and scan engine.
 
+use std::collections::HashSet;
 use std::net::Ipv4Addr;
 
 use serde::{Deserialize, Serialize};
@@ -31,6 +32,61 @@ pub struct Range {
     pub cidr: String,
 }
 
+/// Prevent an accidental broad CIDR from allocating or probing millions of
+/// addresses. A /16 (65,534 hosts) remains valid for large installations.
+pub const MAX_SCAN_ADDRESSES: usize = 65_534;
+
+impl Config {
+    pub fn validate(&self) -> Result<(), String> {
+        let mut building_names = HashSet::new();
+        let mut ranges: Vec<(String, ipnet::Ipv4Net)> = Vec::new();
+
+        for building in &self.buildings {
+            let name = building.name.trim();
+            if name.is_empty() {
+                return Err("every building needs a name".into());
+            }
+            if !building_names.insert(name.to_ascii_lowercase()) {
+                return Err(format!("duplicate building name: {name}"));
+            }
+
+            let mut area_names = HashSet::new();
+            for range in &building.ranges {
+                let area = range.name.trim();
+                if area.is_empty() {
+                    return Err(format!("every range in {name} needs a name"));
+                }
+                if !area_names.insert(area.to_ascii_lowercase()) {
+                    return Err(format!("duplicate range name in {name}: {area}"));
+                }
+                let spec = range.cidr.trim();
+                let net: ipnet::Ipv4Net = if spec.contains('/') {
+                    spec.parse()
+                        .map_err(|e| format!("invalid range '{}' in {name}: {e}", range.cidr))?
+                } else {
+                    let ip: Ipv4Addr = spec
+                        .parse()
+                        .map_err(|e| format!("invalid address '{}' in {name}: {e}", range.cidr))?;
+                    ipnet::Ipv4Net::new(ip, 32).map_err(|e| e.to_string())?
+                };
+                if !net.network().is_private() || !net.broadcast().is_private() {
+                    return Err(format!(
+                        "range '{}' in {name} is not entirely private",
+                        range.cidr
+                    ));
+                }
+                if let Some((other, _)) = ranges.iter().find(|(_, existing)| {
+                    existing.contains(&net.network()) || net.contains(&existing.network())
+                }) {
+                    return Err(format!("range '{}' in {name} overlaps {other}", range.cidr));
+                }
+                ranges.push((format!("{} in {name}", range.cidr), net));
+            }
+        }
+        Ok(())
+    }
+}
+
 fn range_hosts(spec: &str) -> Result<Vec<Ipv4Addr>, String> {
     let spec = spec.trim();
     if spec.is_empty() {
@@ -40,6 +96,11 @@ fn range_hosts(spec: &str) -> Result<Vec<Ipv4Addr>, String> {
         let net: ipnet::Ipv4Net = spec
             .parse()
             .map_err(|e| format!("invalid range '{spec}': {e}"))?;
+        if net.hosts().size_hint().0 > MAX_SCAN_ADDRESSES {
+            return Err(format!(
+                "scan exceeds the safety limit of {MAX_SCAN_ADDRESSES} addresses; select fewer or smaller ranges"
+            ));
+        }
         Ok(net.hosts().collect())
     } else {
         let ip: Ipv4Addr = spec
@@ -64,35 +125,34 @@ fn range_contains(spec: &str, ip: Ipv4Addr) -> bool {
 /// RFC 1918 private space. This is the single chokepoint every scan flows
 /// through — public targets can never be probed, whatever is selected.
 pub fn expand_private(specs: &[String]) -> Result<Vec<Ipv4Addr>, String> {
-    let mut out = Vec::new();
+    let mut out = HashSet::new();
     for spec in specs {
-        out.extend(range_hosts(spec)?);
+        for ip in range_hosts(spec)? {
+            if ip.is_private() {
+                out.insert(ip);
+                if out.len() > MAX_SCAN_ADDRESSES {
+                    return Err(format!(
+                        "scan exceeds the safety limit of {MAX_SCAN_ADDRESSES} addresses; select fewer or smaller ranges"
+                    ));
+                }
+            }
+        }
     }
     if out.is_empty() {
         return Err("no scan targets selected".into());
     }
-    let private: Vec<Ipv4Addr> = out.into_iter().filter(|ip| ip.is_private()).collect();
+    let mut private: Vec<Ipv4Addr> = out.into_iter().collect();
     if private.is_empty() {
         return Err(
             "selected targets resolve to public addresses — Surveil only scans private ranges (10/8, 172.16/12, 192.168/16)"
                 .into(),
         );
     }
+    private.sort_by_key(|ip| u32::from(*ip));
     Ok(private)
 }
 
 impl Config {
-    /// Every address to probe: the union of all ranges, filtered to RFC 1918
-    /// private space so a stray public range can never be scanned.
-    pub fn scan_addresses(&self) -> Result<Vec<Ipv4Addr>, String> {
-        let cidrs: Vec<String> = self
-            .buildings
-            .iter()
-            .flat_map(|b| b.ranges.iter().map(|r| r.cidr.clone()))
-            .collect();
-        expand_private(&cidrs)
-    }
-
     /// The (building name, range name) whose range contains this address.
     pub fn locate(&self, ip: Ipv4Addr) -> Option<(&str, &str)> {
         for building in &self.buildings {
@@ -131,28 +191,54 @@ mod tests {
 
     #[test]
     fn scans_the_union_of_private_ranges() {
-        let addrs = cfg(vec![
-            ("Example Hall", vec![("First Floor", "10.200.61.0/30"), ("Second Floor", "10.200.62.0/30")]),
+        let config = cfg(vec![
+            (
+                "Example Hall",
+                vec![
+                    ("First Floor", "10.200.61.0/30"),
+                    ("Second Floor", "10.200.62.0/30"),
+                ],
+            ),
             ("Example Annex", vec![("Main", "10.200.63.0/30")]),
-        ])
-        .scan_addresses()
-        .unwrap();
+        ]);
+        let cidrs = config
+            .buildings
+            .iter()
+            .flat_map(|b| b.ranges.iter().map(|r| r.cidr.clone()))
+            .collect::<Vec<_>>();
+        let addrs = expand_private(&cidrs).unwrap();
         assert_eq!(addrs.len(), 6); // three /30s × 2 usable
         assert!(addrs.iter().all(|ip| ip.is_private()));
     }
 
     #[test]
     fn refuses_public_ranges() {
-        assert!(cfg(vec![("Bad", vec![("x", "8.8.8.0/30")])])
-            .scan_addresses()
-            .is_err());
+        assert!(expand_private(&["8.8.8.0/30".to_string()]).is_err());
+    }
+
+    #[test]
+    fn validates_duplicate_and_overlapping_ranges() {
+        let duplicate = cfg(vec![(
+            "Example",
+            vec![("One", "192.168.1.0/24"), ("Two", "192.168.1.0/25")],
+        )]);
+        assert!(duplicate.validate().unwrap_err().contains("overlaps"));
+    }
+
+    #[test]
+    fn limits_accidental_huge_scans() {
+        let error = expand_private(&["10.0.0.0/8".to_string()]).unwrap_err();
+        assert!(error.contains("safety limit"));
     }
 
     #[test]
     fn locates_building_and_range() {
         let c = cfg(vec![(
             "Example Hall",
-            vec![("First Floor", "10.200.61.0/24"), ("Second Floor", "10.200.62.0/24")],
+            vec![
+                ("First Floor", "10.200.61.0/24"),
+                ("Second Floor", "10.200.62.0/24"),
+            ],
         )]);
         assert_eq!(
             c.locate(Ipv4Addr::new(10, 200, 62, 137)),

@@ -150,6 +150,8 @@ async function loadConfig() {
 const saveConfig = () => invoke("save_config", { config });
 
 async function removeBuilding(i) {
+  const building = config.buildings[i];
+  if (!building || !window.confirm(`Delete ${building.name}? This cannot be undone.`)) return;
   const before = config.buildings;
   config.buildings = config.buildings.filter((_, idx) => idx !== i);
   try {
@@ -268,7 +270,7 @@ importFile.addEventListener("change", () => {
 exportBtn.addEventListener("click", async () => {
   try {
     const path = await invoke("export_config");
-    setIo("Exported to " + path);
+    if (path) setIo("Exported to " + path);
   } catch (e) {
     setIo("Export failed: " + e, true);
   }

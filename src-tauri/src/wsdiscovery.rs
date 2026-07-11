@@ -136,7 +136,10 @@ mod tests {
     fn extract_pulls_tag_content() {
         let body = "<d:XAddrs>http://192.168.10.7/onvif/device_service</d:XAddrs>\
                     <d:Scopes>onvif://www.onvif.org/name/CamA</d:Scopes>";
-        assert_eq!(extract(body, "XAddrs>"), "http://192.168.10.7/onvif/device_service");
+        assert_eq!(
+            extract(body, "XAddrs>"),
+            "http://192.168.10.7/onvif/device_service"
+        );
         assert_eq!(extract(body, "Scopes>"), "onvif://www.onvif.org/name/CamA");
     }
 }

@@ -8,6 +8,7 @@ use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use tauri::{Emitter, Manager};
+use tauri_plugin_dialog::DialogExt;
 
 use config::Config;
 use store::{CameraStatus, FoundCamera};
@@ -59,27 +60,29 @@ fn get_config(app: tauri::AppHandle) -> Result<Config, String> {
 /// Validate and persist the building configuration.
 #[tauri::command]
 fn save_config(app: tauri::AppHandle, config: Config) -> Result<(), String> {
-    for b in &config.buildings {
-        if b.name.trim().is_empty() {
-            return Err("every building needs a name".into());
-        }
-    }
+    config.validate()?;
     store::save_config(&data_dir(&app)?, &config)
 }
 
-/// Export the current config to `surveil-config.json` in Downloads — a private
-/// copy to back up or move to another machine.
+/// Export the current config using the platform's native Save dialog.
 #[tauri::command]
-fn export_config(app: tauri::AppHandle) -> Result<String, String> {
+async fn export_config(app: tauri::AppHandle) -> Result<Option<String>, String> {
     let config = store::load_config(&data_dir(&app)?, SEED_CONFIG)?;
-    let downloads = app
-        .path()
-        .download_dir()
-        .map_err(|e| format!("locate Downloads folder: {e}"))?;
-    let path = downloads.join("surveil-config.json");
+    let Some(selected) = app
+        .dialog()
+        .file()
+        .set_file_name("surveil-config.json")
+        .add_filter("JSON", &["json"])
+        .blocking_save_file()
+    else {
+        return Ok(None);
+    };
+    let path = selected
+        .into_path()
+        .map_err(|e| format!("invalid export path: {e}"))?;
     let text = serde_json::to_string_pretty(&config).map_err(|e| e.to_string())?;
     std::fs::write(&path, text).map_err(|e| format!("write export: {e}"))?;
-    Ok(path.to_string_lossy().into_owned())
+    Ok(Some(path.to_string_lossy().into_owned()))
 }
 
 /// Scan every building's ranges, diff against the stored inventory, persist, and
@@ -98,19 +101,28 @@ async fn scan(
     let addresses = config::expand_private(&targets)?;
     let scanned_scope: HashSet<std::net::Ipv4Addr> = addresses.iter().copied().collect();
 
-    let found_ips = discovery::sweep(addresses, port, concurrency, timeout, |scanned, total, found| {
-        let _ = window.emit(
-            "scan:progress",
-            ProgressPayload {
-                scanned,
-                total,
-                found,
-            },
-        );
-    })
+    let found_ips = discovery::sweep(
+        addresses,
+        port,
+        concurrency,
+        timeout,
+        |scanned, total, found| {
+            let _ = window.emit(
+                "scan:progress",
+                ProgressPayload {
+                    scanned,
+                    total,
+                    found,
+                },
+            );
+        },
+    )
     .await;
 
-    let found: Vec<FoundCamera> = found_ips.into_iter().map(|ip| enrich(&config, ip)).collect();
+    let found: Vec<FoundCamera> = found_ips
+        .into_iter()
+        .map(|ip| enrich(&config, ip))
+        .collect();
 
     let now = now_secs();
     let previous = store::load_inventory(&dir);
@@ -182,12 +194,16 @@ fn show_configurator(app: &tauri::AppHandle) -> Result<bool, String> {
         existing.set_focus().map_err(|e| e.to_string())?;
         return Ok(true);
     }
-    tauri::WebviewWindowBuilder::new(app, "buildings", tauri::WebviewUrl::App("buildings.html".into()))
-        .title("Building Generator")
-        .inner_size(760.0, 820.0)
-        .min_inner_size(560.0, 500.0)
-        .build()
-        .map_err(|e| e.to_string())?;
+    tauri::WebviewWindowBuilder::new(
+        app,
+        "buildings",
+        tauri::WebviewUrl::App("buildings.html".into()),
+    )
+    .title("Building Generator")
+    .inner_size(760.0, 820.0)
+    .min_inner_size(560.0, 500.0)
+    .build()
+    .map_err(|e| e.to_string())?;
     Ok(false)
 }
 
@@ -222,6 +238,7 @@ fn take_pending_edit(state: tauri::State<PendingEdit>) -> Option<String> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .manage(PendingEdit(std::sync::Mutex::new(None)))
         .invoke_handler(tauri::generate_handler![
             get_config,
