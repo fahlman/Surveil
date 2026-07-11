@@ -212,6 +212,7 @@ h1 {
   padding: 2px 0 8px 30px;
   display: flex;
   flex-direction: column;
+  align-items: stretch;
   gap: 5px;
 }
 
@@ -250,8 +251,12 @@ h1 {
 
 .f-item {
   display: flex;
+  flex-direction: row;
   align-items: center;
+  justify-content: flex-start;
   gap: 8px;
+  width: 100%;
+  text-align: left;
   font-size: 13px;
 }
 
