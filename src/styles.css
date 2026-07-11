@@ -157,6 +157,24 @@ h1 {
   margin-left: auto;
 }
 
+.building-delete {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border-radius: 50%;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 18px;
+  font-weight: 400;
+  line-height: 20px;
+}
+
+.building-delete:hover {
+  color: var(--error);
+  border-color: var(--error);
+}
+
 .b-item {
   border-bottom: 1px solid var(--border);
 }

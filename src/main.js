@@ -76,7 +76,15 @@ function renderBuildings() {
     edit.textContent = "Edit";
     edit.addEventListener("click", () => openEditor(index));
 
-    summary.append(cb, chevron, name, edit);
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "building-delete";
+    remove.textContent = "−";
+    remove.title = `Delete ${b.name}`;
+    remove.setAttribute("aria-label", `Delete ${b.name}`);
+    remove.addEventListener("click", () => deleteBuilding(index));
+
+    summary.append(cb, chevron, name, edit, remove);
     item.appendChild(summary);
 
     item.addEventListener("toggle", () => {
@@ -195,6 +203,22 @@ function closeEditor() {
   $("#editor-home").appendChild(editor);
 }
 
+async function deleteBuilding(index) {
+  const building = config.buildings[index];
+  if (!building || !window.confirm(`Delete ${building.name}? This cannot be undone.`)) return;
+  const before = config.buildings;
+  config.buildings = config.buildings.filter((_, buildingIndex) => buildingIndex !== index);
+  try {
+    await invoke("save_config", { config });
+    closeEditor();
+    await loadBuildings();
+    setConfigStatus(`${building.name} deleted.`);
+  } catch (error) {
+    config.buildings = before;
+    setConfigStatus("Couldn't delete: " + error, true);
+  }
+}
+
 const readRanges = () =>
   Array.from(document.querySelectorAll("#range-list .range-row"))
     .map((row) => ({
@@ -229,20 +253,7 @@ editor.addEventListener("submit", async (event) => {
 });
 
 $("#delete-building").addEventListener("click", async () => {
-  const building = config.buildings[editingIndex];
-  if (!building || !window.confirm(`Delete ${building.name}? This cannot be undone.`)) return;
-  const before = config.buildings;
-  config.buildings = config.buildings.filter((_, index) => index !== editingIndex);
-  try {
-    await invoke("save_config", { config });
-    closeEditor();
-    await loadBuildings();
-    setConfigStatus(`${building.name} deleted.`);
-  } catch (error) {
-    config.buildings = before;
-    editorStatus.textContent = "Couldn't delete: " + error;
-    editorStatus.classList.add("error");
-  }
+  await deleteBuilding(editingIndex);
 });
 
 const importFile = $("#import-file");
