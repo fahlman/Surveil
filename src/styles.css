@@ -234,37 +234,34 @@ h1 {
   gap: 5px;
 }
 
-.inline-editor {
-  border-top: 1px solid var(--border);
-  margin: 6px 0 14px 30px;
-  padding: 14px;
-  border: 1px solid var(--border);
+.b-item.editing {
+  border: 1px solid var(--accent);
   border-radius: 10px;
-  background: var(--bg);
+  margin: 6px 0;
+  padding: 4px 8px 8px;
 }
 
-#editor-home .inline-editor {
-  margin: 14px 0 0;
+.building-name-input {
+  flex: 1;
+  min-width: 140px;
 }
 
-.inline-editor > label {
-  display: flex;
-  margin-bottom: 12px;
+.editing-floors {
+  padding-left: 20px;
 }
 
-.inline-editor > label input {
-  width: min(360px, 100%);
+.editing-floors .range-row {
+  flex-wrap: nowrap;
 }
 
-.editor-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 12px;
+.editing-floors .range-name,
+.editing-floors .range-cidr {
+  flex: 1;
+  width: auto;
 }
 
-.editor-head h2 {
-  margin: 0;
+.add-floor {
+  align-self: flex-start;
 }
 
 .f-item {

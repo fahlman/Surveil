@@ -14,109 +14,232 @@ const fmtTime = (secs) => (secs ? new Date(secs * 1000).toLocaleString() : "");
 const locationLabel = (c) =>
   c.building ? (c.area ? `${escapeHtml(c.building)} · ${escapeHtml(c.area)}` : escapeHtml(c.building)) : "—";
 
-// ---- Building list: check a whole building or expand to pick floors ----
+// ---- Building list and in-place editing ----
 let config = { buildings: [] };
-let editingIndex = null;
 let selectedCidrs = new Set();
 let knownCidrs = new Set();
-const expanded = new Set(); // building names currently expanded
+let editingIndex = null;
+let draftBuilding = null;
+let addingBuilding = false;
+const expanded = new Set();
 
-const buildingCidrs = (b) => (b.ranges || []).map((r) => r.cidr).filter(Boolean);
+const buildingCidrs = (building) => (building.ranges || []).map((range) => range.cidr).filter(Boolean);
+const setConfigStatus = (message, isError = false) => {
+  const status = $("#config-status");
+  status.textContent = message;
+  status.classList.toggle("error", isError);
+};
 
-function renderBuildings() {
-  const root = $("#building-list");
-  const editor = $("#building-editor");
-  const editorHome = $("#editor-home");
-  if (editor && editorHome && editor.parentElement !== editorHome) editorHome.appendChild(editor);
-  root.replaceChildren();
-  if (!config.buildings.length) {
-    root.innerHTML =
-      '<p class="status">No buildings yet — add one to begin.</p>';
-    return;
+function startEditing(index) {
+  editingIndex = index;
+  addingBuilding = false;
+  draftBuilding = structuredClone(config.buildings[index]);
+  expanded.add(draftBuilding.name);
+  renderBuildings();
+}
+
+function startAdding() {
+  editingIndex = config.buildings.length;
+  addingBuilding = true;
+  draftBuilding = { name: "", ranges: [{ name: "", cidr: "" }], notes: "" };
+  renderBuildings();
+}
+
+function cancelEditing() {
+  editingIndex = null;
+  addingBuilding = false;
+  draftBuilding = null;
+  renderBuildings();
+}
+
+async function saveDraft() {
+  const index = editingIndex;
+  const candidate = structuredClone(config);
+  const cleaned = {
+    ...draftBuilding,
+    name: draftBuilding.name.trim(),
+    ranges: draftBuilding.ranges
+      .map((range) => ({ name: range.name.trim(), cidr: range.cidr.trim() }))
+      .filter((range) => range.name || range.cidr),
+  };
+  if (addingBuilding) candidate.buildings.push(cleaned);
+  else candidate.buildings[index] = cleaned;
+  try {
+    await invoke("save_config", { config: candidate });
+    config = candidate;
+    cancelEditing();
+    await loadBuildings();
+    setConfigStatus(`${cleaned.name} saved.`);
+  } catch (error) {
+    setConfigStatus("Couldn't save: " + error, true);
   }
+}
 
-  config.buildings.forEach((b, index) => {
-    const cidrs = buildingCidrs(b);
-    const selected = cidrs.filter((c) => selectedCidrs.has(c)).length;
+async function deleteBuilding(index) {
+  const building = config.buildings[index];
+  if (!building || !window.confirm(`Delete ${building.name}? This cannot be undone.`)) return;
+  const candidate = { ...config, buildings: config.buildings.filter((_, i) => i !== index) };
+  try {
+    await invoke("save_config", { config: candidate });
+    config = candidate;
+    cancelEditing();
+    await loadBuildings();
+    setConfigStatus(`${building.name} deleted.`);
+  } catch (error) {
+    setConfigStatus("Couldn't delete: " + error, true);
+  }
+}
 
-    const item = document.createElement("details");
-    item.className = "b-item";
-    item.dataset.buildingIndex = index;
-    item.open = expanded.has(b.name);
+function renderEditingItem(item, summary, chevron, index) {
+  item.classList.add("editing");
+  item.open = true;
+  chevron.classList.add("expanded");
 
-    const summary = document.createElement("summary");
-    summary.className = "b-summary";
-    // A click on the checkbox or Edit button shouldn't toggle the expander.
-    summary.addEventListener("click", (e) => {
-      if (e.target.closest("input, button")) e.preventDefault();
-    });
+  const nameInput = document.createElement("input");
+  nameInput.className = "building-name-input";
+  nameInput.type = "text";
+  nameInput.placeholder = "Building name";
+  nameInput.value = draftBuilding.name;
+  nameInput.addEventListener("input", () => { draftBuilding.name = nameInput.value; });
 
-    const cb = document.createElement("input");
-    cb.type = "checkbox";
-    cb.checked = cidrs.length > 0 && selected === cidrs.length;
-    cb.indeterminate = selected > 0 && selected < cidrs.length;
-    cb.addEventListener("change", () => {
-      if (cb.checked) cidrs.forEach((c) => selectedCidrs.add(c));
-      else cidrs.forEach((c) => selectedCidrs.delete(c));
-      renderBuildings();
-    });
+  const save = document.createElement("button");
+  save.type = "button";
+  save.className = "link edit-link";
+  save.textContent = "Save";
+  save.addEventListener("click", saveDraft);
+  const cancel = document.createElement("button");
+  cancel.type = "button";
+  cancel.className = "link";
+  cancel.textContent = "Cancel";
+  cancel.addEventListener("click", cancelEditing);
+  summary.append(chevron, nameInput, save, cancel);
 
-    const chevron = document.createElement("span");
-    chevron.className = "b-chevron";
-    chevron.classList.toggle("expanded", item.open);
-    chevron.classList.toggle("empty", cidrs.length === 0);
-
-    const name = document.createElement("span");
-    name.className = "b-name";
-    name.textContent = b.name;
-
-    const edit = document.createElement("button");
-    edit.type = "button";
-    edit.className = "link edit-link";
-    edit.textContent = "Edit";
-    edit.addEventListener("click", () => openEditor(index));
-
+  const floors = document.createElement("div");
+  floors.className = "b-floors editing-floors";
+  draftBuilding.ranges.forEach((range, rangeIndex) => {
+    const row = document.createElement("div");
+    row.className = "range-row";
+    const rangeName = document.createElement("input");
+    rangeName.className = "range-name";
+    rangeName.type = "text";
+    rangeName.placeholder = "First Floor";
+    rangeName.value = range.name;
+    rangeName.addEventListener("input", () => { range.name = rangeName.value; });
+    const cidr = document.createElement("input");
+    cidr.className = "range-cidr";
+    cidr.type = "text";
+    cidr.placeholder = "192.168.10.0/24";
+    cidr.value = range.cidr;
+    cidr.addEventListener("input", () => { range.cidr = cidr.value; });
     const remove = document.createElement("button");
     remove.type = "button";
     remove.className = "building-delete";
     remove.textContent = "−";
-    remove.title = `Delete ${b.name}`;
-    remove.setAttribute("aria-label", `Delete ${b.name}`);
+    remove.title = "Remove range";
+    remove.setAttribute("aria-label", "Remove range");
+    remove.addEventListener("click", () => {
+      draftBuilding.ranges.splice(rangeIndex, 1);
+      renderBuildings();
+    });
+    row.append(rangeName, cidr, remove);
+    floors.appendChild(row);
+  });
+  const addRange = document.createElement("button");
+  addRange.type = "button";
+  addRange.className = "link add-floor";
+  addRange.textContent = "+ Add Floor";
+  addRange.addEventListener("click", () => {
+    draftBuilding.ranges.push({ name: "", cidr: "" });
+    renderBuildings();
+  });
+  floors.appendChild(addRange);
+  item.append(summary, floors);
+  setTimeout(() => nameInput.focus(), 0);
+}
+
+function renderBuildings() {
+  const root = $("#building-list");
+  root.replaceChildren();
+  const buildings = addingBuilding ? config.buildings.concat(draftBuilding) : config.buildings;
+  if (!buildings.length) {
+    root.innerHTML = '<p class="status">No buildings yet — add one to begin.</p>';
+    return;
+  }
+
+  buildings.forEach((building, index) => {
+    const editing = index === editingIndex;
+    const item = document.createElement("details");
+    item.className = "b-item";
+    item.open = editing || expanded.has(building.name);
+    const summary = document.createElement("summary");
+    summary.className = "b-summary";
+    summary.addEventListener("click", (event) => {
+      if (event.target.closest("input, button")) event.preventDefault();
+    });
+    const chevron = document.createElement("span");
+    chevron.className = "b-chevron";
+    chevron.classList.toggle("expanded", item.open);
+
+    if (editing) {
+      renderEditingItem(item, summary, chevron, index);
+      root.appendChild(item);
+      return;
+    }
+
+    const cidrs = buildingCidrs(building);
+    const selected = cidrs.filter((cidr) => selectedCidrs.has(cidr)).length;
+    chevron.classList.toggle("empty", cidrs.length === 0);
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.checked = cidrs.length > 0 && selected === cidrs.length;
+    checkbox.indeterminate = selected > 0 && selected < cidrs.length;
+    checkbox.addEventListener("change", () => {
+      cidrs.forEach((cidr) => checkbox.checked ? selectedCidrs.add(cidr) : selectedCidrs.delete(cidr));
+      renderBuildings();
+    });
+    const name = document.createElement("span");
+    name.className = "b-name";
+    name.textContent = building.name;
+    const edit = document.createElement("button");
+    edit.type = "button";
+    edit.className = "link edit-link";
+    edit.textContent = "Edit";
+    edit.addEventListener("click", () => startEditing(index));
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "building-delete";
+    remove.textContent = "−";
+    remove.title = `Delete ${building.name}`;
+    remove.setAttribute("aria-label", `Delete ${building.name}`);
     remove.addEventListener("click", () => deleteBuilding(index));
-
-    summary.append(cb, chevron, name, edit, remove);
+    summary.append(checkbox, chevron, name, edit, remove);
     item.appendChild(summary);
-
     item.addEventListener("toggle", () => {
-      if (item.open) expanded.add(b.name);
-      else expanded.delete(b.name);
+      if (item.open) expanded.add(building.name); else expanded.delete(building.name);
       chevron.classList.toggle("expanded", item.open);
     });
-
     const floors = document.createElement("div");
     floors.className = "b-floors";
-    (b.ranges || []).forEach((r) => {
-      if (!r.cidr) return;
-      const fl = document.createElement("label");
-      fl.className = "f-item";
-      const fcb = document.createElement("input");
-      fcb.type = "checkbox";
-      fcb.checked = selectedCidrs.has(r.cidr);
-      fcb.addEventListener("change", () => {
-        if (fcb.checked) selectedCidrs.add(r.cidr);
-        else selectedCidrs.delete(r.cidr);
+    (building.ranges || []).forEach((range) => {
+      if (!range.cidr) return;
+      const row = document.createElement("label");
+      row.className = "f-item";
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.checked = selectedCidrs.has(range.cidr);
+      checkbox.addEventListener("change", () => {
+        if (checkbox.checked) selectedCidrs.add(range.cidr); else selectedCidrs.delete(range.cidr);
         renderBuildings();
       });
-      const fn = document.createElement("span");
-      fn.textContent = r.name || r.cidr;
-      const fc = document.createElement("span");
-      fc.className = "tree-cidr";
-      fc.textContent = r.cidr;
-      fl.append(fcb, fn, fc);
-      floors.appendChild(fl);
+      const name = document.createElement("span");
+      name.textContent = range.name || range.cidr;
+      const cidr = document.createElement("span");
+      cidr.className = "tree-cidr";
+      cidr.textContent = range.cidr;
+      row.append(checkbox, name, cidr);
+      floors.appendChild(row);
     });
     item.appendChild(floors);
-    if (editingIndex === index && !editor.hidden) item.appendChild(editor);
     root.appendChild(item);
   });
 }
@@ -126,135 +249,16 @@ async function loadBuildings() {
     config = await invoke("get_config");
     const all = config.buildings.flatMap(buildingCidrs);
     const allSet = new Set(all);
-    all.forEach((c) => {
-      if (!knownCidrs.has(c)) selectedCidrs.add(c); // new ranges default to selected
-    });
-    selectedCidrs.forEach((c) => {
-      if (!allSet.has(c)) selectedCidrs.delete(c);
-    });
+    all.forEach((cidr) => { if (!knownCidrs.has(cidr)) selectedCidrs.add(cidr); });
+    selectedCidrs.forEach((cidr) => { if (!allSet.has(cidr)) selectedCidrs.delete(cidr); });
     knownCidrs = allSet;
     renderBuildings();
-  } catch (e) {
-    console.error("get_config failed", e);
-  }
-}
-
-// ---- Inline building configuration ----
-const editor = $("#building-editor");
-const editorStatus = $("#editor-status");
-const setConfigStatus = (message, isError = false) => {
-  const status = $("#config-status");
-  status.textContent = message;
-  status.classList.toggle("error", isError);
-};
-
-function addRangeRow(name = "", cidr = "") {
-  const row = document.createElement("div");
-  row.className = "range-row";
-  const nameInput = document.createElement("input");
-  nameInput.className = "range-name";
-  nameInput.type = "text";
-  nameInput.placeholder = "First Floor";
-  nameInput.value = name;
-  const cidrInput = document.createElement("input");
-  cidrInput.className = "range-cidr";
-  cidrInput.type = "text";
-  cidrInput.placeholder = "192.168.10.0/24";
-  cidrInput.value = cidr;
-  const remove = document.createElement("button");
-  remove.className = "link-danger";
-  remove.type = "button";
-  remove.textContent = "Remove";
-  remove.addEventListener("click", () => row.remove());
-  row.append(nameInput, cidrInput, remove);
-  $("#range-list").appendChild(row);
-}
-
-function openEditor(index = null) {
-  editingIndex = index;
-  const building = index === null ? null : config.buildings[index];
-  $("#editor-title").textContent = building ? `Edit ${building.name}` : "Add Building";
-  $("#building-name").value = building?.name || "";
-  $("#range-list").replaceChildren();
-  const ranges = building?.ranges?.length ? building.ranges : [{ name: "", cidr: "" }];
-  ranges.forEach((range) => addRangeRow(range.name || "", range.cidr || ""));
-  $("#save-building").textContent = building ? "Save Changes" : "Add Building";
-  $("#delete-building").hidden = !building;
-  editorStatus.textContent = "";
-  editorStatus.classList.remove("error");
-  editor.hidden = false;
-  if (building) {
-    expanded.add(building.name);
-    const item = document.querySelector(`[data-building-index="${index}"]`);
-    if (item) {
-      item.open = true;
-      item.appendChild(editor);
-    }
-  } else {
-    $("#editor-home").appendChild(editor);
-  }
-  editor.scrollIntoView({ behavior: "smooth", block: "nearest" });
-  $("#building-name").focus();
-}
-
-function closeEditor() {
-  editingIndex = null;
-  editor.hidden = true;
-  $("#editor-home").appendChild(editor);
-}
-
-async function deleteBuilding(index) {
-  const building = config.buildings[index];
-  if (!building || !window.confirm(`Delete ${building.name}? This cannot be undone.`)) return;
-  const before = config.buildings;
-  config.buildings = config.buildings.filter((_, buildingIndex) => buildingIndex !== index);
-  try {
-    await invoke("save_config", { config });
-    closeEditor();
-    await loadBuildings();
-    setConfigStatus(`${building.name} deleted.`);
   } catch (error) {
-    config.buildings = before;
-    setConfigStatus("Couldn't delete: " + error, true);
+    setConfigStatus("Couldn't load buildings: " + error, true);
   }
 }
 
-const readRanges = () =>
-  Array.from(document.querySelectorAll("#range-list .range-row"))
-    .map((row) => ({
-      name: row.querySelector(".range-name").value.trim(),
-      cidr: row.querySelector(".range-cidr").value.trim(),
-    }))
-    .filter((range) => range.name || range.cidr);
-
-$("#add-building").addEventListener("click", () => openEditor());
-$("#add-range").addEventListener("click", () => addRangeRow());
-$("#cancel-edit").addEventListener("click", closeEditor);
-
-editor.addEventListener("submit", async (event) => {
-  event.preventDefault();
-  const name = $("#building-name").value.trim();
-  const existing = editingIndex === null ? null : config.buildings[editingIndex];
-  const building = { name, ranges: readRanges(), notes: existing?.notes || "" };
-  const before = config.buildings;
-  config.buildings = editingIndex === null
-    ? config.buildings.concat(building)
-    : config.buildings.map((item, index) => index === editingIndex ? building : item);
-  try {
-    await invoke("save_config", { config });
-    closeEditor();
-    await loadBuildings();
-    setConfigStatus(`${name} saved.`);
-  } catch (error) {
-    config.buildings = before;
-    editorStatus.textContent = "Couldn't save: " + error;
-    editorStatus.classList.add("error");
-  }
-});
-
-$("#delete-building").addEventListener("click", async () => {
-  await deleteBuilding(editingIndex);
-});
+$("#add-building").addEventListener("click", startAdding);
 
 const importFile = $("#import-file");
 $("#import-btn").addEventListener("click", () => importFile.click());
@@ -267,7 +271,7 @@ importFile.addEventListener("change", () => {
       const imported = JSON.parse(reader.result);
       if (!imported || !Array.isArray(imported.buildings)) throw new Error("not a Surveil configuration");
       await invoke("save_config", { config: imported });
-      closeEditor();
+      cancelEditing();
       await loadBuildings();
       setConfigStatus(`Imported ${imported.buildings.length} buildings.`);
     } catch (error) {
