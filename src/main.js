@@ -25,6 +25,9 @@ const buildingCidrs = (b) => (b.ranges || []).map((r) => r.cidr).filter(Boolean)
 
 function renderBuildings() {
   const root = $("#building-list");
+  const editor = $("#building-editor");
+  const editorHome = $("#editor-home");
+  if (editor && editorHome && editor.parentElement !== editorHome) editorHome.appendChild(editor);
   root.replaceChildren();
   if (!config.buildings.length) {
     root.innerHTML =
@@ -38,6 +41,7 @@ function renderBuildings() {
 
     const item = document.createElement("details");
     item.className = "b-item";
+    item.dataset.buildingIndex = index;
     item.open = expanded.has(b.name);
 
     const summary = document.createElement("summary");
@@ -104,6 +108,7 @@ function renderBuildings() {
       floors.appendChild(fl);
     });
     item.appendChild(floors);
+    if (editingIndex === index && !editor.hidden) item.appendChild(editor);
     root.appendChild(item);
   });
 }
@@ -170,7 +175,16 @@ function openEditor(index = null) {
   editorStatus.textContent = "";
   editorStatus.classList.remove("error");
   editor.hidden = false;
-  expanded.add(building?.name || "");
+  if (building) {
+    expanded.add(building.name);
+    const item = document.querySelector(`[data-building-index="${index}"]`);
+    if (item) {
+      item.open = true;
+      item.appendChild(editor);
+    }
+  } else {
+    $("#editor-home").appendChild(editor);
+  }
   editor.scrollIntoView({ behavior: "smooth", block: "nearest" });
   $("#building-name").focus();
 }
@@ -178,6 +192,7 @@ function openEditor(index = null) {
 function closeEditor() {
   editingIndex = null;
   editor.hidden = true;
+  $("#editor-home").appendChild(editor);
 }
 
 const readRanges = () =>

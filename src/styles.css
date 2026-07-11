@@ -217,8 +217,15 @@ h1 {
 
 .inline-editor {
   border-top: 1px solid var(--border);
-  margin-top: 14px;
-  padding-top: 16px;
+  margin: 6px 0 14px 30px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg);
+}
+
+#editor-home .inline-editor {
+  margin: 14px 0 0;
 }
 
 .inline-editor > label {
