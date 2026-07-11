@@ -1,5 +1,6 @@
 using System.Net;
 using Surveil.Core;
+using Xunit;
 
 namespace Surveil.Core.Tests;
 
