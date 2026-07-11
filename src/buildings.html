@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Building Generator</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header>
+      <h1>Building Generator</h1>
+      <p class="tagline">Define buildings and the private ranges Surveil scans</p>
+    </header>
+
+    <main>
+      <div class="io-bar">
+        <button id="import-btn" class="secondary" type="button">Import JSON…</button>
+        <button id="export-btn" class="secondary" type="button">Export JSON</button>
+        <input id="import-file" type="file" accept="application/json,.json" hidden />
+        <span id="io-status" class="status"></span>
+      </div>
+
+      <form id="add-building" class="card">
+        <h2 id="b-form-title">Add a building</h2>
+        <label>Name <input id="b-name" type="text" required /></label>
+        <div class="ranges-editor">
+          <div class="ranges-head">Ranges — a name and a private CIDR per extension (e.g. a floor)</div>
+          <div id="b-ranges-list"></div>
+          <button type="button" id="add-range" class="link">+ Add range</button>
+        </div>
+        <div class="form-actions">
+          <button type="submit" id="b-submit">Add</button>
+          <button type="button" id="b-cancel" class="link" hidden>Cancel</button>
+        </div>
+        <p id="b-status" class="status"></p>
+      </form>
+
+      <table id="buildings-table">
+        <thead>
+          <tr><th>Name</th><th>Ranges</th><th></th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </main>
+
+    <script src="buildings.js"></script>
+  </body>
+</html>

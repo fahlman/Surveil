@@ -1,0 +1,24 @@
+[package]
+name = "surveil"
+version = "0.1.0"
+description = "Discover, inventory, and manage IP security cameras on a network"
+license = "MIT"
+edition = "2021"
+rust-version = "1.77"
+
+[lib]
+# The privileged engine (network sweep, camera I/O, backups) lives here so it
+# can be unit-tested and, later, reused. main.rs is a thin launcher.
+name = "surveil_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "net", "time", "sync"] }
+futures = "0.3"
+ipnet = "2"

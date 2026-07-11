@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Surveil</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header>
+      <div class="header-row">
+        <h1>Surveil</h1>
+        <button id="open-configurator" class="secondary" type="button">Building Generator</button>
+      </div>
+    </header>
+
+    <main>
+      <div class="card">
+        <div class="scope-head">
+          <span>Buildings</span>
+          <button id="reload-buildings" class="link" type="button">↻ Reload</button>
+        </div>
+        <div id="building-list" class="building-tree"></div>
+      </div>
+
+      <div class="controls card">
+        <label>Port <input id="port" type="number" value="80" min="1" max="65535" /></label>
+        <button id="scan-btn">Scan</button>
+        <button id="wsd-btn" class="secondary" type="button">Quick scan (WS-Discovery)</button>
+      </div>
+
+      <div id="wsd-result" hidden>
+        <p id="wsd-verdict" class="summary"></p>
+        <table id="wsd-table" hidden>
+          <thead>
+            <tr><th>Building</th><th>IP</th><th>ONVIF service</th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+
+      <div id="progress-wrap" hidden>
+        <div class="progress-track"><div id="progress-bar"></div></div>
+        <p id="progress-text" class="status"></p>
+      </div>
+
+      <p id="summary" class="summary"></p>
+
+      <table id="results" hidden>
+        <thead>
+          <tr>
+            <th>Status</th>
+            <th>Building</th>
+            <th>IP</th>
+            <th>Last seen</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </main>
+
+    <script src="main.js"></script>
+  </body>
+</html>

@@ -1,0 +1,10 @@
+/src-tauri/target
+**/*.rs.bk
+.DS_Store
+
+# Keep real network data out of the public repo — the committed seed
+# (src-tauri/seed/buildings.json) is sample data only; real maps live in
+# app-data and in private JSON exports.
+/buildings.csv
+surveil-*.json
+*.local.json

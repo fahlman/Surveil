@@ -1,0 +1,6 @@
+{
+  "buildings": [
+    { "name": "Example Hall", "ranges": [ { "name": "Main", "cidr": "192.0.2.0/24" } ], "notes": "Sample data — replace with your own via Buildings > Import." },
+    { "name": "Sample Annex", "ranges": [ { "name": "Main", "cidr": "198.51.100.0/24" } ], "notes": "Sample data." }
+  ]
+}
