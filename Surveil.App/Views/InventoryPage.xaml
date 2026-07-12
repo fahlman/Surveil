@@ -29,11 +29,22 @@
             <TextBlock Text="{Binding Summary}" Opacity="0.7" Style="{StaticResource CaptionTextBlockStyle}" />
         </StackPanel>
 
-        <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="8">
-            <Button Content="Refresh" Command="{Binding LoadCommand}" />
-            <Button Content="Export CSV…" Click="OnExportClick"
-                    IsEnabled="{Binding Cameras.Count, Converter={StaticResource CountPositiveToBool}}" />
-        </StackPanel>
+        <Grid Grid.Row="1" ColumnSpacing="8">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="280" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <TextBox Grid.Column="0" PlaceholderText="Filter by IP, building, or area…"
+                     Text="{Binding Filter, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
+                <Button Content="Copy IPs" Command="{Binding CopyIpsCommand}"
+                        IsEnabled="{Binding Cameras.Count, Converter={StaticResource CountPositiveToBool}}"
+                        ToolTipService.ToolTip="Copy the shown IPs to the clipboard" />
+                <Button Content="Refresh" Command="{Binding LoadCommand}" />
+                <Button Content="Export CSV…" Click="OnExportClick"
+                        IsEnabled="{Binding Cameras.Count, Converter={StaticResource CountPositiveToBool}}" />
+            </StackPanel>
+        </Grid>
 
         <muxc:InfoBar Grid.Row="2"
             IsOpen="{Binding StatusMessage, Converter={StaticResource StringToBool}}"
