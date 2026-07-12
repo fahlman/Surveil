@@ -32,7 +32,6 @@
             <Button Content="Save" Style="{StaticResource AccentButtonStyle}" Command="{Binding SaveCommand}" />
             <Button Content="Import…" Click="OnImportClick" />
             <Button Content="Export…" Click="OnExportClick" />
-            <Button Content="Add building" Command="{Binding AddBuildingCommand}" />
         </StackPanel>
 
         <muxc:InfoBar Grid.Row="2"
