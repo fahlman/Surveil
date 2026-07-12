@@ -13,7 +13,6 @@
         <conv:StringToBoolConverter x:Key="StringToBool" />
         <conv:ErrorToSeverityConverter x:Key="ErrorToSeverity" />
         <conv:BoolToVisibilityConverter x:Key="BoolToVis" />
-        <conv:CountZeroToVisibilityConverter x:Key="CountZeroToVis" />
         <conv:CountPositiveToVisibilityConverter x:Key="CountPositiveToVis" />
         <conv:InverseBoolConverter x:Key="InverseBool" />
     </Page.Resources>
@@ -183,9 +182,6 @@
                                         </DataTemplate>
                                     </ItemsControl.ItemTemplate>
                                 </ItemsControl>
-
-                                <Button Content="Add range" Command="{x:Bind AddRangeCommand}" Margin="0,2,0,0"
-                                        Visibility="{x:Bind Children.Count, Mode=OneWay, Converter={StaticResource CountZeroToVis}}" />
                             </StackPanel>
                         </StackPanel>
                     </DataTemplate>

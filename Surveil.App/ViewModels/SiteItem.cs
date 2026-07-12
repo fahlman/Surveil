@@ -93,13 +93,4 @@ public sealed partial class SiteItem : ObservableObject
         var index = Owner.IndexOf(this);
         Owner.Insert(index + 1, new SiteItem($"Site {Owner.Count + 1}", Owner));
     }
-
-    /// <summary>Add a CIDR range under this site (used by the in-site "Add range").</summary>
-    [RelayCommand]
-    private void AddRange()
-    {
-        Children.Add(new NetworkRangeItem(this));
-        IsExpanded = true;
-        RefreshSelection();
-    }
 }
