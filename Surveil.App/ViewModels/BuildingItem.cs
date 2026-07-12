@@ -10,6 +10,7 @@ public sealed partial class BuildingItem : ObservableObject
 {
     [ObservableProperty] private string name;
     [ObservableProperty] private string notes;
+    [ObservableProperty] private bool isEditing;
 
     public List<NetworkRange> Ranges { get; set; }
 
@@ -17,6 +18,7 @@ public sealed partial class BuildingItem : ObservableObject
     {
         name = building.Name;
         notes = building.Notes;
+        isEditing = false;
         Ranges = new List<NetworkRange>(building.Ranges);
     }
 
@@ -24,6 +26,7 @@ public sealed partial class BuildingItem : ObservableObject
     {
         this.name = name;
         notes = "";
+        isEditing = true;  // a new building opens editable so its name can be set
         Ranges = new List<NetworkRange>();
     }
 
