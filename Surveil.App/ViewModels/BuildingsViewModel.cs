@@ -51,19 +51,23 @@ public sealed partial class BuildingsViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private void RemoveBuilding()
+    private void RemoveBuilding(BuildingItem? building)
     {
-        if (SelectedBuilding is null) return;
-        var index = Buildings.IndexOf(SelectedBuilding);
-        Buildings.Remove(SelectedBuilding);
-        SelectedBuilding = Buildings.Count == 0 ? null : Buildings[Math.Max(0, index - 1)];
+        building ??= SelectedBuilding;
+        if (building is null) return;
+        var index = Buildings.IndexOf(building);
+        var wasSelected = SelectedBuilding == building;
+        Buildings.Remove(building);
+        if (wasSelected || SelectedBuilding is null)
+            SelectedBuilding = Buildings.Count == 0 ? null : Buildings[Math.Clamp(index - 1, 0, Buildings.Count - 1)];
     }
 
-    /// <summary>Lock the building name after editing, or unlock it to edit again.</summary>
+    /// <summary>Lock a building name after editing, or unlock it to edit again.</summary>
     [RelayCommand]
-    private void ToggleEditBuilding()
+    private void ToggleEditBuilding(BuildingItem? building)
     {
-        if (SelectedBuilding is not null) SelectedBuilding.IsEditing = !SelectedBuilding.IsEditing;
+        building ??= SelectedBuilding;
+        if (building is not null) building.IsEditing = !building.IsEditing;
     }
 
     /// <summary>Add the first range (used by the empty-state button).</summary>
