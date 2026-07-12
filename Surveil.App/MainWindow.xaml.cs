@@ -1,3 +1,4 @@
+using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Surveil.App.Services;
 using Surveil.App.Views;
@@ -12,7 +13,7 @@ public sealed partial class MainWindow : Window
         Title = "Surveil — ONVIF camera provisioning";
     }
 
-    private async void Nav_Loaded(object sender, Microsoft.UI.Xaml.RoutedEventArgs e)
+    private async void Nav_Loaded(object sender, RoutedEventArgs e)
     {
         // Load the building map once up front so every page starts from the same config.
         try { await AppSession.Current.LoadConfigAsync(); }
@@ -25,7 +26,7 @@ public sealed partial class MainWindow : Window
     {
         if (args.SelectedItem is not NavigationViewItem item) return;
 
-        var page = item.Tag as string switch
+        var page = (item.Tag as string) switch
         {
             "buildings" => typeof(BuildingsPage),
             "scan" => typeof(ScanPage),
