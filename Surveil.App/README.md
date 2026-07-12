@@ -9,17 +9,16 @@ Left-nav pages, plus **Provision** as a toggle-able right-side drawer and **Sett
 
 | Page/panel | What it does                                                                 | Core API |
 |------------|------------------------------------------------------------------------------|----------|
-| **Buildings** | Edit the building map (buildings → CIDR ranges); save / import / export JSON. List updates live on rename. | `SurveilService.{Get,Save,Import,Export}ConfigAsync` |
-| **Scan**      | TCP port sweep of IPs/CIDRs; live progress; new/online/offline vs inventory. Pre-flight validation names bad tokens. | `SurveilService.ScanAsync` |
-| **Discover**  | WS-Discovery multicast; lists ONVIF responders tagged by building/area       | `SurveilService.DiscoverAsync` |
-| **Inventory** | Read-only view of saved cameras (cameras.json) with quick-filter, Copy IPs, and CSV export | `JsonStore.LoadInventoryAsync` |
-| **Provision** *(drawer)* | Derive name/hostname from the map, set NTP, maximize video (codec pref, resolution-first); **dry-run** preview; truthful per-camera results | `BulkProvisioningService.{Plan,ProvisionAsync}` |
+| **Buildings** | The hierarchical map **and** the inventory: a tree of building → CIDR → cameras. Check CIDRs and **Scan** them (cameras nest under their CIDR), or **Discover** the network (strays land in an **Unmapped** group). Loads the saved inventory on startup. Save / import / export JSON. | `SurveilService.ScanAsync` · `DiscoverAsync` · `JsonStore.LoadInventoryAsync` · config APIs |
+| **Scan**      | Standalone TCP port sweep of IPs/CIDRs; live progress; new/online/offline vs inventory | `SurveilService.ScanAsync` |
+| **Discover**  | Standalone WS-Discovery; lists ONVIF responders tagged by building/area       | `SurveilService.DiscoverAsync` |
+| **Provision** *(docked right panel)* | Derive name/hostname from the map, set NTP, maximize video (codec pref, resolution-first); **dry-run** preview; truthful per-camera results | `BulkProvisioningService.{Plan,ProvisionAsync}` |
 | **Settings**  | Persisted defaults (username, port/timeout/concurrency, codecs, dry-run). Never stores the password. | `SettingsStore` → settings.json |
 
-Scan and Discover have a **"Send to Provision →"** button that loads the found cameras into the
-Provision drawer and opens it. The building map and ONVIF credentials are shared across pages via
-`Services/AppSession`. The password is held in memory only — never written to disk. Pages use
-`NavigationCacheMode=Required`, so what you type on one page survives switching tabs.
+The Provision panel is **always docked on the right**. Scan and Discover have a
+**"Send to Provision →"** button that loads the found cameras into it. The building map and ONVIF
+credentials are shared via `Services/AppSession`. The password is held in memory only — never
+written to disk. Pages use `NavigationCacheMode=Required`, so state survives switching tabs.
 
 An app-level `UnhandledException` handler logs to `logs/surveil.log` under the data dir and shows an
 error dialog instead of crashing; view-model operations report failures in an InfoBar, not a crash.
