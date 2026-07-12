@@ -3,6 +3,10 @@
 **/obj/
 .DS_Store
 
+# Visual Studio
+.vs/
+*.user
+
 # Keep real network data out of the public repo — real building maps live in
 # app-data (%LOCALAPPDATA%\Surveil) and in private JSON exports, never in git.
 /buildings.csv
