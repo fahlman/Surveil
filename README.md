@@ -1,7 +1,7 @@
 # Surveil
 
 A desktop tool to discover, inventory, and manage IP security cameras across a
-large network. It sweeps every camera subnet, identifies each camera by building
+large network. It sweeps every camera subnet, identifies each camera by site
 and floor, and diffs each scan against the last to surface **new** and
 **missing** cameras — change detection for a fleet that's painful to track
 through a VMS.
@@ -20,10 +20,10 @@ Surveil is a native **C# / .NET** application for Windows.
 
 ## Implemented so far
 
-- Building, named-range, camera, and inventory models
+- Site, named-range, camera, and inventory models
 - Private IPv4 CIDR parsing and expansion, with a 65,534-address scan safety limit
 - Duplicate and overlapping range validation
-- IP-to-building/area lookup
+- IP-to-site/area lookup
 - New, present, absent, and out-of-scope inventory comparison
 - Concurrent TCP scanning with bounded concurrency, timeout, cancellation, and progress
 - Atomic JSON persistence in `%LOCALAPPDATA%\Surveil`
@@ -43,19 +43,19 @@ Surveil is a native **C# / .NET** application for Windows.
 
 Surveil stores two JSON files in `%LOCALAPPDATA%\Surveil`:
 
-- `buildings.json` — the building map (name and named private network ranges),
+- `sites.json` — the site map (name and named private network ranges),
   editable in the app.
 - `cameras.json` — the camera inventory with first/last-seen timestamps, updated
   after every scan.
 
 ## Network configuration
 
-Each installation defines its own buildings, named areas, and private CIDR
+Each installation defines its own sites, named areas, and private CIDR
 ranges. No organization-specific network layout is compiled into Surveil.
 
 ## Scanning
 
-Select any combination of buildings and named ranges, then scan them on the
+Select any combination of sites and named ranges, then scan them on the
 chosen TCP port. Surveil limits each scan to 65,534 unique private addresses to
 guard against accidentally selecting an overly broad range.
 

@@ -9,12 +9,12 @@ Left-nav pages, plus **Provision** as a toggle-able right-side drawer and **Sett
 
 | Page/panel | What it does                                                                 | Core API |
 |------------|------------------------------------------------------------------------------|----------|
-| **Buildings** | The whole app: a tree of building → CIDR → cameras that is both the map **and** the inventory. Check CIDRs and **Scan** them (cameras nest under their CIDR), or **Discover** the network (strays land in an **Unmapped** group). Loads the saved inventory on startup. Save / import / export JSON. | `SurveilService.ScanAsync` · `DiscoverAsync` · `JsonStore.LoadInventoryAsync` · config APIs |
+| **Sites** | The whole app: a tree of site → CIDR → cameras that is both the map **and** the inventory. Check CIDRs and **Scan** them (cameras nest under their CIDR), or **Discover** the network (strays land in an **Unmapped** group). Loads the saved inventory on startup. Save / import / export JSON. | `SurveilService.ScanAsync` · `DiscoverAsync` · `JsonStore.LoadInventoryAsync` · config APIs |
 | **Provision** *(docked right panel)* | Derive name/hostname from the map, set NTP, maximize video (codec pref, resolution-first); **dry-run** preview; truthful per-camera results | `BulkProvisioningService.{Plan,ProvisionAsync}` |
 | **Settings**  | Persisted defaults (username, port/timeout/concurrency, codecs, dry-run). Never stores the password. | `SettingsStore` → settings.json |
 
-It's a single-window app: the **Buildings** tree in the middle, **Provision** always docked on the
-right, **Settings** in the nav footer. The building map and ONVIF credentials are shared via
+It's a single-window app: the **Sites** tree in the middle, **Provision** always docked on the
+right, **Settings** in the nav footer. The site map and ONVIF credentials are shared via
 `Services/AppSession`; the password is held in memory only, never written to disk.
 
 An app-level `UnhandledException` handler logs to `logs/surveil.log` under the data dir and shows an
@@ -48,7 +48,7 @@ Runtime, so no separate runtime install is required to run it.
 ## Status
 
 Builds clean (0 warnings / 0 errors) with .NET SDK 10.0.301 and in CI (`build-app` job).
-Verified at runtime (launch + UI Automation): navigation across all pages; Buildings editor
+Verified at runtime (launch + UI Automation): navigation across all pages; Sites editor
 (add/rename with live updates); Scan input validation; Settings persistence across restart;
 Inventory view + quick-filter + Copy IPs + CSV export. Not yet exercised against live hardware:
 the actual Scan/Discover/Provision network operations and the "Send to Provision" data hop

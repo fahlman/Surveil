@@ -33,19 +33,19 @@ $hwnd = (Get-Process -Id $p.Id).MainWindowHandle
 ```powershell
 Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
 # window: RootElement.FindFirst(Children, ProcessIdProperty == $p.Id)
-# nav:    find NavigationViewItem by NameProperty ("Buildings"/"Scan"/"Discover"/"Provision"),
+# nav:    find NavigationViewItem by NameProperty ("Sites"/"Scan"/"Discover"/"Provision"),
 #         it's a ListItem -> SelectionItemPattern.Select()
 # fields: find by AutomationIdProperty; ValuePattern.SetValue / .Current.Value to type/read
 ```
-Stable AutomationIds (from `x:Name`): `TargetsBox` (Scan targets), `BuildingsList`,
-`BuildingNameBox`. Add `x:Name` to any control you need to drive.
+Stable AutomationIds (from `x:Name`): `TargetsBox` (Scan targets), `SitesList`,
+`SiteNameBox`. Add `x:Name` to any control you need to drive.
 
 ## Gotchas
 - **Provision page** is the heaviest (Pivot + Expanders + PasswordBox); allow >1s to render or
   a fast capture catches a stale frame.
 - **Don't trigger live actions unsupervised:** Scan/Discover hit the network; Provision writes to
-  real cameras (defaults to dry-run, but don't rely on that). Verify navigation + the Buildings
-  editor (pure local state) instead. Confirm no `%LOCALAPPDATA%\Surveil\buildings.json` was
+  real cameras (defaults to dry-run, but don't rely on that). Verify navigation + the Sites
+  editor (pure local state) instead. Confirm no `%LOCALAPPDATA%\Surveil\sites.json` was
   written if you didn't intend to Save.
 - Pages use `NavigationCacheMode=Required`, so page/VM state persists across navigation — useful
   for verifying input isn't lost when switching tabs.
