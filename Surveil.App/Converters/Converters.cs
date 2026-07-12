@@ -97,6 +97,17 @@ public sealed class NullToVisibilityConverter : IValueConverter
         throw new NotSupportedException();
 }
 
+/// <summary>Collection count (int) to Visibility: 0 → Visible (show an empty-state hint),
+/// any other value → Collapsed.</summary>
+public sealed class CountZeroToVisibilityConverter : IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, string language) =>
+        value is int n && n == 0 ? Visibility.Visible : Visibility.Collapsed;
+
+    public object ConvertBack(object value, Type targetType, object parameter, string language) =>
+        throw new NotSupportedException();
+}
+
 /// <summary>Non-empty string to Visible, empty/null to Collapsed.</summary>
 public sealed class StringToVisibilityConverter : IValueConverter
 {
