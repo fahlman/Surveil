@@ -49,6 +49,7 @@ public sealed partial class DiscoverViewModel : ObservableObject
         {
             HasError = true;
             StatusMessage = ex.Message;
+            AppLog.Write(ex);
         }
         finally
         {

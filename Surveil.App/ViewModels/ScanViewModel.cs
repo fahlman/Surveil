@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Net;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Surveil.App.Services;
@@ -39,6 +40,26 @@ public sealed partial class ScanViewModel : ObservableObject
             return;
         }
 
+        // Pre-flight: expand once so a bad token is reported clearly instead of mid-scan.
+        IReadOnlyList<IPAddress> addresses;
+        try
+        {
+            addresses = NetworkRanges.ExpandPrivate(specs);
+        }
+        catch (Exception ex)
+        {
+            HasError = true;
+            StatusMessage = $"Could not read targets: {ex.Message}";
+            AppLog.Write(ex);
+            return;
+        }
+        if (addresses.Count == 0)
+        {
+            HasError = true;
+            StatusMessage = "No private IPv4 addresses in those targets. Use ranges like 10.x, 172.16–31.x or 192.168.x.";
+            return;
+        }
+
         Results.Clear();
         HasError = false;
         IsScanning = true;
@@ -71,6 +92,7 @@ public sealed partial class ScanViewModel : ObservableObject
         {
             HasError = true;
             StatusMessage = ex.Message;
+            AppLog.Write(ex);
         }
         finally
         {
