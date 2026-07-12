@@ -119,6 +119,16 @@ public sealed class CountPositiveToBoolConverter : IValueConverter
         throw new NotSupportedException();
 }
 
+/// <summary>Collection count (int) to Visibility: greater than zero → Visible, else Collapsed.</summary>
+public sealed class CountPositiveToVisibilityConverter : IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, string language) =>
+        value is int n && n > 0 ? Visibility.Visible : Visibility.Collapsed;
+
+    public object ConvertBack(object value, Type targetType, object parameter, string language) =>
+        throw new NotSupportedException();
+}
+
 /// <summary>Non-empty string to Visible, empty/null to Collapsed.</summary>
 public sealed class StringToVisibilityConverter : IValueConverter
 {
