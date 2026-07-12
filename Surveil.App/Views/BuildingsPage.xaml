@@ -5,14 +5,16 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:muxc="using:Microsoft.UI.Xaml.Controls"
     xmlns:conv="using:Surveil.App.Converters"
-    xmlns:core="using:Surveil.Core"
     xmlns:vm="using:Surveil.App.ViewModels"
+    xmlns:controls="using:Surveil.App.Controls"
     NavigationCacheMode="Required">
 
     <Page.Resources>
         <conv:NullToVisibilityConverter x:Key="NullToVis" />
         <conv:StringToBoolConverter x:Key="StringToBool" />
         <conv:ErrorToSeverityConverter x:Key="ErrorToSeverity" />
+        <conv:BoolToVisibilityConverter x:Key="BoolToVis" />
+        <conv:CountZeroToVisibilityConverter x:Key="CountZeroToVis" />
     </Page.Resources>
 
     <Grid Padding="24" RowSpacing="16">
@@ -40,9 +42,10 @@
             Message="{Binding StatusMessage}"
             IsClosable="True" />
 
-        <Grid Grid.Row="3" ColumnSpacing="16">
+        <Grid Grid.Row="3">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="280" />
+                <ColumnDefinition x:Name="ListColumn" Width="220" MinWidth="160" />
+                <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="*" />
             </Grid.ColumnDefinitions>
 
@@ -69,43 +72,90 @@
                 </StackPanel>
             </Grid>
 
+            <!-- Draggable divider between the list and the editor -->
+            <controls:ColumnSplitter Grid.Column="1" Width="14"
+                                     ManipulationDelta="Splitter_ManipulationDelta">
+                <Grid Background="Transparent">
+                    <Border Width="1" HorizontalAlignment="Center" Background="{ThemeResource CardStrokeColorDefaultBrush}" />
+                </Grid>
+            </controls:ColumnSplitter>
+
             <!-- Selected building editor -->
-            <ScrollViewer Grid.Column="1"
+            <ScrollViewer Grid.Column="2"
                 Visibility="{Binding SelectedBuilding, Converter={StaticResource NullToVis}}">
                 <StackPanel Spacing="12">
                     <TextBox x:Name="BuildingNameBox" Header="Name" Text="{Binding SelectedBuilding.Name, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
-                    <TextBox Header="Notes" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="60"
-                             Text="{Binding SelectedBuilding.Notes, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
 
-                    <Grid>
-                        <TextBlock Text="Network ranges" Style="{StaticResource SubtitleTextBlockStyle}" VerticalAlignment="Center" />
-                        <Button Content="Add range" HorizontalAlignment="Right" Command="{Binding AddRangeCommand}" />
-                    </Grid>
+                    <TextBlock Text="Network ranges" Style="{StaticResource SubtitleTextBlockStyle}" />
 
                     <ListView x:Name="RangesList" ItemsSource="{Binding Ranges}"
                         SelectionMode="None"
                         BorderThickness="1" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                        CornerRadius="6" MinHeight="120">
+                        CornerRadius="6" MinHeight="80">
+                        <ListView.ItemContainerStyle>
+                            <Style TargetType="ListViewItem">
+                                <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                            </Style>
+                        </ListView.ItemContainerStyle>
                         <ListView.ItemTemplate>
-                            <DataTemplate x:DataType="core:NetworkRange">
-                                <Grid ColumnSpacing="8" Padding="0,4">
+                            <DataTemplate x:DataType="vm:NetworkRangeItem">
+                                <Grid ColumnSpacing="6" Padding="0,4">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*" />
-                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="*" MinWidth="120" />
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="Auto" />
                                         <ColumnDefinition Width="Auto" />
                                     </Grid.ColumnDefinitions>
+
+                                    <!-- Editing mode -->
                                     <TextBox Grid.Column="0" PlaceholderText="Area / name"
-                                             Text="{Binding Name, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                                             Text="{Binding Name, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                             Visibility="{Binding IsEditing, Converter={StaticResource BoolToVis}}" />
                                     <TextBox Grid.Column="1" PlaceholderText="CIDR e.g. 10.20.0.0/24"
-                                             Text="{Binding Cidr, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
-                                    <Button Grid.Column="2" Content="&#xE74D;" FontFamily="Segoe MDL2 Assets"
-                                            ToolTipService.ToolTip="Remove range"
-                                            Command="{Binding DataContext.RemoveRangeCommand, ElementName=RangesList}"
-                                            CommandParameter="{Binding}" />
+                                             Text="{Binding Cidr, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                             Visibility="{Binding IsEditing, Converter={StaticResource BoolToVis}}" />
+
+                                    <!-- Locked mode -->
+                                    <TextBlock Grid.Column="0" Text="{Binding Name}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                                               ToolTipService.ToolTip="{Binding Name}"
+                                               Visibility="{Binding IsEditing, Converter={StaticResource BoolToVis}, ConverterParameter=invert}" />
+                                    <TextBlock Grid.Column="1" Text="{Binding Cidr}" VerticalAlignment="Center" FontFamily="Consolas" TextTrimming="CharacterEllipsis"
+                                               ToolTipService.ToolTip="{Binding Cidr}"
+                                               Visibility="{Binding IsEditing, Converter={StaticResource BoolToVis}, ConverterParameter=invert}" />
+
+                                    <!-- Edit / Done toggle -->
+                                    <Button Grid.Column="2"
+                                            Command="{Binding DataContext.ToggleEditRangeCommand, ElementName=RangesList}" CommandParameter="{Binding}">
+                                        <Grid>
+                                            <FontIcon Glyph="&#xE73E;" FontFamily="Segoe MDL2 Assets" FontSize="14"
+                                                      Visibility="{Binding IsEditing, Converter={StaticResource BoolToVis}}"
+                                                      ToolTipService.ToolTip="Done" />
+                                            <FontIcon Glyph="&#xE70F;" FontFamily="Segoe MDL2 Assets" FontSize="14"
+                                                      Visibility="{Binding IsEditing, Converter={StaticResource BoolToVis}, ConverterParameter=invert}"
+                                                      ToolTipService.ToolTip="Edit" />
+                                        </Grid>
+                                    </Button>
+
+                                    <!-- Delete -->
+                                    <Button Grid.Column="3" ToolTipService.ToolTip="Delete range"
+                                            Command="{Binding DataContext.RemoveRangeCommand, ElementName=RangesList}" CommandParameter="{Binding}">
+                                        <FontIcon Glyph="&#xE74D;" FontFamily="Segoe MDL2 Assets" FontSize="14" />
+                                    </Button>
+
+                                    <!-- Add another below -->
+                                    <Button Grid.Column="4" ToolTipService.ToolTip="Add range below"
+                                            Command="{Binding DataContext.AddRangeAfterCommand, ElementName=RangesList}" CommandParameter="{Binding}">
+                                        <FontIcon Glyph="&#xE710;" FontFamily="Segoe MDL2 Assets" FontSize="14" />
+                                    </Button>
                                 </Grid>
                             </DataTemplate>
                         </ListView.ItemTemplate>
                     </ListView>
+
+                    <!-- Seed the first range when there are none -->
+                    <Button Content="Add range" Command="{Binding AddRangeCommand}" HorizontalAlignment="Left"
+                            Visibility="{Binding Ranges.Count, Converter={StaticResource CountZeroToVis}}" />
                 </StackPanel>
             </ScrollViewer>
         </Grid>

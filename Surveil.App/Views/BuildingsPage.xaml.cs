@@ -1,5 +1,6 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Input;
 using Surveil.App.ViewModels;
 using Windows.Storage.Pickers;
 
@@ -13,6 +14,13 @@ public sealed partial class BuildingsPage : Page
     {
         InitializeComponent();
         DataContext = new BuildingsViewModel();
+    }
+
+    /// <summary>Drag the divider to resize the buildings-list column.</summary>
+    private void Splitter_ManipulationDelta(object sender, ManipulationDeltaRoutedEventArgs e)
+    {
+        var width = ListColumn.ActualWidth + e.Delta.Translation.X;
+        ListColumn.Width = new GridLength(Math.Clamp(width, ListColumn.MinWidth, 640));
     }
 
     private async void OnImportClick(object sender, RoutedEventArgs e)
