@@ -128,7 +128,9 @@ public sealed class CoreTests
 
         var profile = Assert.Single(await client.GetProfilesAsync());
         Assert.Equal("profile-1", profile.Token);
+        Assert.Equal("Main Stream", profile.Name);
         Assert.Equal("encoder-1", profile.VideoEncoderToken);
+        Assert.Equal("source-1", profile.VideoSourceToken);
         var configuration = Assert.Single(await client.GetVideoEncoderConfigurationsAsync("encoder-1"));
         Assert.Equal(new OnvifResolution(1920, 1080), configuration.Resolution);
         Assert.Equal(15f, configuration.FrameRateLimit);
@@ -363,8 +365,10 @@ public sealed class CoreTests
         "xmlns:tr2='http://www.onvif.org/ver20/media/wsdl' xmlns:tt='http://www.onvif.org/ver10/schema'><s:Body>";
     private const string SoapEnd = "</s:Body></s:Envelope>";
     private const string ProfilesResponse = SoapStart + "<tr2:GetProfilesResponse><tr2:Profiles token='profile-1'>" +
-        "<tt:Name>Main Stream</tt:Name><tr2:Configurations><tt:VideoEncoder token='encoder-1'/></tr2:Configurations>" +
-        "</tr2:Profiles></tr2:GetProfilesResponse>" + SoapEnd;
+        "<tr2:Name>Main Stream</tr2:Name><tr2:Configurations>" +
+        "<tr2:VideoSource token='vsc-1'><tt:SourceToken>source-1</tt:SourceToken></tr2:VideoSource>" +
+        "<tr2:VideoEncoder token='encoder-1'><tt:Encoding>video/H264</tt:Encoding></tr2:VideoEncoder>" +
+        "</tr2:Configurations></tr2:Profiles></tr2:GetProfilesResponse>" + SoapEnd;
     private const string ConfigurationResponse = SoapStart +
         "<tr2:GetVideoEncoderConfigurationsResponse><tr2:Configurations token='encoder-1'>" +
         "<tt:Name>Main</tt:Name><tt:Encoding>video/H264</tt:Encoding>" +
@@ -372,8 +376,9 @@ public sealed class CoreTests
         "<tt:RateControl><tt:FrameRateLimit>15</tt:FrameRateLimit><tt:BitrateLimit>4096</tt:BitrateLimit></tt:RateControl>" +
         "<tt:Quality>3</tt:Quality></tr2:Configurations></tr2:GetVideoEncoderConfigurationsResponse>" + SoapEnd;
     private const string OptionsResponse = SoapStart +
-        "<tr2:GetVideoEncoderConfigurationOptionsResponse><tr2:Options FrameRatesSupported='30 15 10' GovLengthRange='1 300'>" +
-        "<tt:Encoding>video/H264</tt:Encoding><tt:QualityRange><tt:Min>1</tt:Min><tt:Max>5</tt:Max></tt:QualityRange>" +
+        "<tr2:GetVideoEncoderConfigurationOptionsResponse>" +
+        "<tr2:Options Encoding='video/H264' FrameRatesSupported='30 15 10' GovLengthRange='1 300'>" +
+        "<tt:QualityRange><tt:Min>1</tt:Min><tt:Max>5</tt:Max></tt:QualityRange>" +
         "<tt:ResolutionsAvailable><tt:Width>1920</tt:Width><tt:Height>1080</tt:Height></tt:ResolutionsAvailable>" +
         "<tt:ResolutionsAvailable><tt:Width>1280</tt:Width><tt:Height>720</tt:Height></tt:ResolutionsAvailable>" +
         "<tt:BitrateRange><tt:Min>64</tt:Min><tt:Max>8192</tt:Max></tt:BitrateRange>" +
