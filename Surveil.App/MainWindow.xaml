@@ -36,7 +36,7 @@
                 x:Name="Nav"
                 IsBackButtonVisible="Collapsed"
                 IsSettingsVisible="False"
-                PaneDisplayMode="Auto"
+                PaneDisplayMode="LeftCompact"
                 OpenPaneLength="200"
                 IsPaneToggleButtonVisible="True"
                 SelectionChanged="Nav_SelectionChanged"
