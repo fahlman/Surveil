@@ -36,8 +36,10 @@ public sealed class WsDiscovery : IWsDiscovery
             {
                 var response = await client.ReceiveAsync(deadline.Token);
                 var body = Encoding.UTF8.GetString(response.Buffer);
-                if (!body.Contains("ProbeMatch", StringComparison.OrdinalIgnoreCase) &&
-                    !body.Contains("XAddrs", StringComparison.OrdinalIgnoreCase)) continue;
+                // WS-Discovery shares its multicast group (239.255.255.250:3702) with Microsoft WSD,
+                // so NAS boxes, printers and Windows PCs answer our probe even though it asks for the
+                // ONVIF NetworkVideoTransmitter type. Keep only responders that advertise that type.
+                if (!IsOnvifCamera(body)) continue;
                 responders.TryAdd(response.RemoteEndPoint.Address,
                     new WsDiscoveryResponder(response.RemoteEndPoint.Address, ExtractXAddresses(body)));
             }
@@ -60,6 +62,23 @@ public sealed class WsDiscovery : IWsDiscovery
           </e:Header><e:Body><d:Probe><d:Types>dn:NetworkVideoTransmitter</d:Types></d:Probe></e:Body>
         </e:Envelope>
         """;
+
+    /// <summary>True only when a ProbeMatch advertises the ONVIF <c>NetworkVideoTransmitter</c> type,
+    /// which is what distinguishes a camera from the other WS-Discovery / WSD devices (NAS, printers,
+    /// PCs) that also answer the probe.</summary>
+    internal static bool IsOnvifCamera(string xml)
+    {
+        try
+        {
+            return XDocument.Parse(xml).Descendants()
+                .Where(element => element.Name.LocalName.Equals("Types", StringComparison.OrdinalIgnoreCase))
+                .Any(element => element.Value.Contains("NetworkVideoTransmitter", StringComparison.OrdinalIgnoreCase));
+        }
+        catch (System.Xml.XmlException)
+        {
+            return xml.Contains("NetworkVideoTransmitter", StringComparison.OrdinalIgnoreCase);
+        }
+    }
 
     internal static string ExtractXAddresses(string xml)
     {
