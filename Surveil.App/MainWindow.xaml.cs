@@ -11,8 +11,6 @@ public sealed partial class MainWindow : Window
     {
         InitializeComponent();
         Title = "Surveil — ONVIF camera provisioning";
-        // Scan/Discover "Send to Provision" opens the drawer.
-        AppSession.Current.ProvisionDrawerRequested += () => ProvisionDrawer.IsPaneOpen = true;
     }
 
     private async void Nav_Loaded(object sender, RoutedEventArgs e)
@@ -40,6 +38,4 @@ public sealed partial class MainWindow : Window
 
         ContentFrame.Navigate(page);
     }
-
-    private void CloseProvision_Click(object sender, RoutedEventArgs e) => ProvisionDrawer.IsPaneOpen = false;
 }
