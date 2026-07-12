@@ -98,8 +98,68 @@ public sealed class BulkProvisioningTests
         Assert.Equal("loading-dock-bay-2-north-5", plan.Hostname);
     }
 
+    [Fact]
+    public async Task ClampsVideoResolutionToEachCameraMax()
+    {
+        var config = Config("Hall", "Main", "10.200.62.0/24");
+        var vga = new OnvifResolution(1280, 720);
+        var hd = new OnvifResolution(1920, 1080);
+        var uhd = new OnvifResolution(3840, 2160);
+        var videos = new ConcurrentDictionary<string, FakeVideo>();
+        var service = new BulkProvisioningService(config,
+            deviceFactory: _ => new RecordingDevice(),
+            videoFactory: endpoint =>
+            {
+                var supported = endpoint.Host.EndsWith(".2") ? new[] { vga, hd, uhd } : new[] { vga, hd };
+                return videos[endpoint.Host] = new FakeVideo(new VideoEncoderInfo("enc0", vga, supported));
+            });
+
+        var results = await service.ProvisionAsync(
+            service.TargetsFromAddresses([IPAddress.Parse("10.200.62.1"), IPAddress.Parse("10.200.62.2")]),
+            new BulkProvisionOptions { SetName = false, SetHostname = false, SetNtp = false, TargetResolution = uhd });
+
+        Assert.All(results, result => Assert.True(result.Success));
+        Assert.Equal(hd, videos["10.200.62.1"].Applied.Single().Resolution);   // HD-max camera clamped to HD
+        Assert.Equal(uhd, videos["10.200.62.2"].Applied.Single().Resolution);  // 4K-capable camera gets 4K
+    }
+
+    [Fact]
+    public async Task SkipsVideoWriteWhenAlreadyAtClampedResolution()
+    {
+        var config = Config("Hall", "Main", "10.200.62.0/24");
+        var uhd = new OnvifResolution(3840, 2160);
+        var fake = new FakeVideo(new VideoEncoderInfo("enc0", uhd, new[] { new OnvifResolution(1920, 1080), uhd }));
+        var service = new BulkProvisioningService(config, deviceFactory: _ => new RecordingDevice(), videoFactory: _ => fake);
+
+        var result = Assert.Single(await service.ProvisionAsync(
+            service.TargetsFromAddresses([IPAddress.Parse("10.200.62.5")]),
+            new BulkProvisionOptions { SetName = false, SetHostname = false, SetNtp = false, TargetResolution = uhd }));
+
+        Assert.True(result.Success);
+        Assert.Empty(fake.Applied);
+        Assert.Contains(result.Steps, step => step.Contains("already set"));
+    }
+
     private static SurveilConfig Config(string building, string area, string cidr) =>
         new() { Buildings = [new Building { Name = building, Ranges = [new NetworkRange { Name = area, Cidr = cidr }] }] };
+
+    private sealed class FakeVideo : IProvisionableVideo
+    {
+        private readonly VideoEncoderInfo[] encoders;
+        public FakeVideo(params VideoEncoderInfo[] encoders) => this.encoders = encoders;
+        public List<(string Token, OnvifResolution Resolution)> Applied { get; } = [];
+
+        public Task<IReadOnlyList<VideoEncoderInfo>> GetEncodersAsync(CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<VideoEncoderInfo>>(encoders);
+
+        public Task SetResolutionAsync(string configurationToken, OnvifResolution resolution, CancellationToken cancellationToken)
+        {
+            Applied.Add((configurationToken, resolution));
+            return Task.CompletedTask;
+        }
+
+        public void Dispose() { }
+    }
 
     private sealed class RecordingDevice : IProvisionableDevice
     {
