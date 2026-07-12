@@ -99,58 +99,55 @@ public sealed class BulkProvisioningTests
     }
 
     [Fact]
-    public async Task ClampsVideoResolutionToEachCameraMax()
+    public async Task MaximizesEveryStreamToItsOwnResolutionAndFrameRate()
     {
         var config = Config("Hall", "Main", "10.200.62.0/24");
         var vga = new OnvifResolution(1280, 720);
         var hd = new OnvifResolution(1920, 1080);
         var uhd = new OnvifResolution(3840, 2160);
-        var videos = new ConcurrentDictionary<string, FakeVideo>();
+        FakeVideo? fake = null;
         var service = new BulkProvisioningService(config,
             deviceFactory: _ => new RecordingDevice(),
-            videoFactory: endpoint =>
+            videoFactory: _ => fake = new FakeVideo(new[]
             {
-                var supported = endpoint.Host.EndsWith(".2") ? new[] { vga, hd, uhd } : new[] { vga, hd };
-                return videos[endpoint.Host] = new FakeVideo(new VideoEncoderInfo("enc0", vga, supported));
-            });
+                new VideoEncoderInfo("main", vga, 15f, new[] { vga, hd, uhd }, new[] { 30f, 15f }),
+                new VideoEncoderInfo("sub", vga, 15f, new[] { new OnvifResolution(640, 480), vga }, new[] { 30f, 25f }),
+            }));
 
-        var results = await service.ProvisionAsync(
-            service.TargetsFromAddresses([IPAddress.Parse("10.200.62.1"), IPAddress.Parse("10.200.62.2")]),
-            new BulkProvisionOptions { SetName = false, SetHostname = false, SetNtp = false, TargetResolution = uhd });
+        var result = Assert.Single(await service.ProvisionAsync(
+            service.TargetsFromAddresses([IPAddress.Parse("10.200.62.5")]),
+            new BulkProvisionOptions { SetName = false, SetHostname = false, SetNtp = false, MaximizeVideo = true }));
 
-        Assert.All(results, result => Assert.True(result.Success));
-        Assert.Equal(hd, videos["10.200.62.1"].Applied.Single().Resolution);   // HD-max camera clamped to HD
-        Assert.Equal(uhd, videos["10.200.62.2"].Applied.Single().Resolution);  // 4K-capable camera gets 4K
-
-        // Structured outcome tells the UI the truth: requested vs applied, and that it was clamped.
-        var cam1 = results.Single(r => r.Address.ToString() == "10.200.62.1").Video.Single();
-        Assert.Equal(uhd, cam1.Requested);
-        Assert.Equal(hd, cam1.Applied);
-        Assert.True(cam1.Clamped);
-        var cam2 = results.Single(r => r.Address.ToString() == "10.200.62.2").Video.Single();
-        Assert.Equal(uhd, cam2.Applied);
-        Assert.False(cam2.Clamped);
+        Assert.True(result.Success);
+        // Every stream configured, each to its OWN max resolution + max frame rate.
+        Assert.Equal(("main", uhd, (float?)30f), fake!.Applied.Single(a => a.Token == "main"));
+        Assert.Equal(("sub", vga, (float?)30f), fake.Applied.Single(a => a.Token == "sub"));
+        var main = result.Video.Single(v => v.ConfigurationToken == "main");
+        Assert.Equal(uhd, main.AppliedResolution);
+        Assert.Equal(30f, main.AppliedFrameRate);
+        Assert.False(main.ClampedByCamera);
     }
 
     [Fact]
-    public async Task SkipsVideoWriteWhenAlreadyAtClampedResolution()
+    public async Task ReportsTheResolutionAndFrameRateTheCameraActuallyApplied()
     {
         var config = Config("Hall", "Main", "10.200.62.0/24");
         var uhd = new OnvifResolution(3840, 2160);
-        var fake = new FakeVideo(new VideoEncoderInfo("enc0", uhd, new[] { new OnvifResolution(1920, 1080), uhd }));
+        // Camera accepts 4K but only at 15fps, even though 30 is in its advertised list.
+        var fake = new FakeVideo(
+            new[] { new VideoEncoderInfo("main", new OnvifResolution(1920, 1080), 30f, new[] { uhd }, new[] { 30f, 15f }) },
+            camera: (resolution, frameRate) => new VideoEncoderState(resolution, frameRate == 30f ? 15f : frameRate));
         var service = new BulkProvisioningService(config, deviceFactory: _ => new RecordingDevice(), videoFactory: _ => fake);
 
         var result = Assert.Single(await service.ProvisionAsync(
             service.TargetsFromAddresses([IPAddress.Parse("10.200.62.5")]),
-            new BulkProvisionOptions { SetName = false, SetHostname = false, SetNtp = false, TargetResolution = uhd }));
+            new BulkProvisionOptions { SetName = false, SetHostname = false, SetNtp = false, MaximizeVideo = true }));
 
-        Assert.True(result.Success);
-        Assert.Empty(fake.Applied);
-        Assert.Contains(result.Steps, step => step.Contains("already set"));
         var outcome = result.Video.Single();
-        Assert.Equal(uhd, outcome.Applied);
-        Assert.False(outcome.Changed);
-        Assert.False(outcome.Clamped);
+        Assert.Equal(30f, outcome.RequestedFrameRate);
+        Assert.Equal(uhd, outcome.AppliedResolution);
+        Assert.Equal(15f, outcome.AppliedFrameRate);   // report shows what the camera actually did
+        Assert.True(outcome.ClampedByCamera);
     }
 
     private static SurveilConfig Config(string building, string area, string cidr) =>
@@ -159,16 +156,25 @@ public sealed class BulkProvisioningTests
     private sealed class FakeVideo : IProvisionableVideo
     {
         private readonly VideoEncoderInfo[] encoders;
-        public FakeVideo(params VideoEncoderInfo[] encoders) => this.encoders = encoders;
-        public List<(string Token, OnvifResolution Resolution)> Applied { get; } = [];
+        private readonly Func<OnvifResolution, float?, VideoEncoderState>? camera;
+
+        // camera simulates the device: given the requested res+fps, returns what it actually applies.
+        public FakeVideo(VideoEncoderInfo[] encoders, Func<OnvifResolution, float?, VideoEncoderState>? camera = null)
+        {
+            this.encoders = encoders;
+            this.camera = camera;
+        }
+
+        public List<(string Token, OnvifResolution Resolution, float? FrameRate)> Applied { get; } = [];
 
         public Task<IReadOnlyList<VideoEncoderInfo>> GetEncodersAsync(CancellationToken cancellationToken) =>
             Task.FromResult<IReadOnlyList<VideoEncoderInfo>>(encoders);
 
-        public Task SetResolutionAsync(string configurationToken, OnvifResolution resolution, CancellationToken cancellationToken)
+        public Task<VideoEncoderState> ApplyAsync(string configurationToken, OnvifResolution resolution,
+            float? frameRate, CancellationToken cancellationToken)
         {
-            Applied.Add((configurationToken, resolution));
-            return Task.CompletedTask;
+            Applied.Add((configurationToken, resolution, frameRate));
+            return Task.FromResult(camera?.Invoke(resolution, frameRate) ?? new VideoEncoderState(resolution, frameRate));
         }
 
         public void Dispose() { }

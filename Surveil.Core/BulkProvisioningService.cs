@@ -31,9 +31,10 @@ public sealed record BulkProvisionOptions
     public int MaxConcurrency { get; init; } = 8;
     /// <summary>Skip cameras whose address is not inside any configured building range.</summary>
     public bool SkipUnknownLocation { get; init; } = true;
-    /// <summary>When set, push each camera's video encoder to the best resolution it supports at or
-    /// below this cap — clamped to the camera's own maximum. Requires a video factory.</summary>
-    public OnvifResolution? TargetResolution { get; init; }
+    /// <summary>When true, set every video encoder on each camera to its maximum resolution and, at
+    /// that resolution, the highest frame rate the camera accepts (resolution-first). Requires a
+    /// video factory.</summary>
+    public bool MaximizeVideo { get; init; }
 }
 
 /// <summary>A single camera's configuration surface, abstracted so the batch orchestration is
@@ -47,22 +48,37 @@ public interface IProvisionableDevice : IDisposable
     Task SetNtpAsync(string? posixTimeZone, CancellationToken cancellationToken);
 }
 
-/// <summary>One video encoder configuration on a camera: its token, current resolution, and the
-/// resolutions the camera reports it supports.</summary>
+/// <summary>One video encoder on a camera: its token, current state, and what it supports.</summary>
 public sealed record VideoEncoderInfo(
-    string ConfigurationToken, OnvifResolution Current, IReadOnlyList<OnvifResolution> Supported);
+    string ConfigurationToken,
+    OnvifResolution CurrentResolution, float? CurrentFrameRate,
+    IReadOnlyList<OnvifResolution> SupportedResolutions, IReadOnlyList<float> SupportedFrameRates);
 
-/// <summary>What actually happened to one encoder, for truthful UI display: what was requested,
-/// what was applied, whether it had to be clamped below the request, and whether a write occurred.</summary>
+/// <summary>An encoder's resolution and frame rate at a point in time.</summary>
+public sealed record VideoEncoderState(OnvifResolution Resolution, float? FrameRate);
+
+/// <summary>What actually happened to one encoder, for truthful UI display: what was requested, and
+/// what the camera reported after the write. <see cref="ClampedByCamera"/> is true when the device
+/// could not honor the requested combination (e.g. asked 4K@30, applied 4K@15).</summary>
 public sealed record VideoEncoderOutcome(
-    string ConfigurationToken, OnvifResolution Requested, OnvifResolution Applied, bool Clamped, bool Changed);
+    string ConfigurationToken,
+    OnvifResolution RequestedResolution, float? RequestedFrameRate,
+    OnvifResolution AppliedResolution, float? AppliedFrameRate)
+{
+    public bool ClampedByCamera =>
+        AppliedResolution != RequestedResolution ||
+        (RequestedFrameRate is { } requested && AppliedFrameRate is { } applied && applied < requested);
+}
 
 /// <summary>A camera's video-encoder surface, abstracted for testing. The default implementation
 /// connects over ONVIF and defers each write to the media client's capability validation.</summary>
 public interface IProvisionableVideo : IDisposable
 {
     Task<IReadOnlyList<VideoEncoderInfo>> GetEncodersAsync(CancellationToken cancellationToken);
-    Task SetResolutionAsync(string configurationToken, OnvifResolution resolution, CancellationToken cancellationToken);
+    /// <summary>Apply resolution + frame rate, then read the encoder back and return what the camera
+    /// actually settled on (which may differ if the requested combination was not achievable).</summary>
+    Task<VideoEncoderState> ApplyAsync(string configurationToken, OnvifResolution resolution,
+        float? frameRate, CancellationToken cancellationToken);
 }
 
 /// <summary>Bulk-provisions cameras over ONVIF as an iCT replacement: it derives each camera's
@@ -180,20 +196,22 @@ public sealed class BulkProvisioningService
                     steps.Add(options.NtpPosixTimeZone is null ? "ntp=computer-zone" : $"ntp={options.NtpPosixTimeZone}");
                 }
             }
-            if (options.TargetResolution is { } cap && videoFactory is not null)
+            if (options.MaximizeVideo && videoFactory is not null)
             {
                 using var video = videoFactory(target.DeviceEndpoint);
                 foreach (var encoder in await video.GetEncodersAsync(cancellationToken))
                 {
-                    var chosen = Clamp(cap, encoder.Supported);
-                    if (chosen is null) continue;
-                    var clamped = chosen != cap;
-                    var changed = chosen != encoder.Current;
-                    if (changed)
-                        await video.SetResolutionAsync(encoder.ConfigurationToken, chosen, cancellationToken);
-                    videoOutcomes.Add(new VideoEncoderOutcome(encoder.ConfigurationToken, cap, chosen, clamped, changed));
-                    steps.Add($"video[{encoder.ConfigurationToken}]={Format(chosen)}"
-                        + (clamped ? " (clamped)" : "") + (changed ? "" : " (already set)"));
+                    if (encoder.SupportedResolutions.Count == 0) continue;
+                    var maxResolution = encoder.SupportedResolutions.OrderByDescending(Area).First();
+                    float? maxFrameRate = encoder.SupportedFrameRates.Count > 0
+                        ? encoder.SupportedFrameRates.Max() : null;
+                    var applied = await video.ApplyAsync(
+                        encoder.ConfigurationToken, maxResolution, maxFrameRate, cancellationToken);
+                    var outcome = new VideoEncoderOutcome(encoder.ConfigurationToken,
+                        maxResolution, maxFrameRate, applied.Resolution, applied.FrameRate);
+                    videoOutcomes.Add(outcome);
+                    steps.Add($"video[{encoder.ConfigurationToken}]={Format(applied.Resolution)}{FrameRateSuffix(applied.FrameRate)}"
+                        + (outcome.ClampedByCamera ? " (camera-limited)" : ""));
                 }
             }
             return new CameraProvisionResult(target.Address, target.Building, target.Area, true, steps, null, videoOutcomes);
@@ -233,19 +251,9 @@ public sealed class BulkProvisioningService
         return slug.Length > 63 ? slug[..63].Trim('-') : slug;
     }
 
-    /// <summary>Clamp policy: the largest supported resolution at or below the cap; if the camera
-    /// supports nothing that small, its smallest (best effort). Null only when none is reported.</summary>
-    internal static OnvifResolution? Clamp(OnvifResolution cap, IReadOnlyList<OnvifResolution> supported)
-    {
-        if (supported.Count == 0) return null;
-        var withinCap = supported.Where(r => r.Width <= cap.Width && r.Height <= cap.Height).ToArray();
-        return withinCap.Length > 0
-            ? withinCap.OrderByDescending(Area).First()
-            : supported.OrderBy(Area).First();
-    }
-
     private static long Area(OnvifResolution resolution) => (long)resolution.Width * resolution.Height;
     private static string Format(OnvifResolution resolution) => $"{resolution.Width}x{resolution.Height}";
+    private static string FrameRateSuffix(float? frameRate) => frameRate is { } fps ? $"@{fps:0.##}fps" : "";
 
     private static Uri DefaultDeviceEndpoint(IPAddress address) =>
         new UriBuilder("http", address.ToString()) { Path = DeviceServicePath }.Uri;
@@ -305,16 +313,23 @@ internal sealed class OnvifVideoProvisioner : IProvisionableVideo
         {
             var options = await connection.Video.GetVideoEncoderConfigurationOptionsAsync(
                 config.Token, cancellationToken: cancellationToken);
-            var supported = options.SelectMany(option => option.Resolutions).Distinct().ToArray();
-            encoders.Add(new VideoEncoderInfo(config.Token, config.Resolution, supported));
+            var resolutions = options.SelectMany(option => option.Resolutions).Distinct().ToArray();
+            var frameRates = options.SelectMany(option => option.FrameRates).Distinct().ToArray();
+            encoders.Add(new VideoEncoderInfo(
+                config.Token, config.Resolution, config.FrameRateLimit, resolutions, frameRates));
         }
         return encoders;
     }
 
-    public Task SetResolutionAsync(string configurationToken, OnvifResolution resolution,
-        CancellationToken cancellationToken) =>
-        connection!.Video.UpdateVideoEncoderAsync(configurationToken, resolution.Width, resolution.Height,
-            cancellationToken: cancellationToken);
+    public async Task<VideoEncoderState> ApplyAsync(string configurationToken, OnvifResolution resolution,
+        float? frameRate, CancellationToken cancellationToken)
+    {
+        await connection!.Video.UpdateVideoEncoderAsync(configurationToken, resolution.Width, resolution.Height,
+            framesPerSecond: frameRate, cancellationToken: cancellationToken);
+        var applied = (await connection.Video.GetVideoEncoderConfigurationsAsync(
+            configurationToken, cancellationToken: cancellationToken)).Single();
+        return new VideoEncoderState(applied.Resolution, applied.FrameRateLimit);
+    }
 
     public void Dispose() => connection?.Dispose();
 }
