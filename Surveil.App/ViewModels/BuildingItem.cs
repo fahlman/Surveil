@@ -30,13 +30,15 @@ public sealed partial class BuildingItem : ObservableObject
         foreach (var range in building.Ranges) Children.Add(new NetworkRangeItem(range, this));
     }
 
-    /// <summary>A brand-new building starts editable so its name can be set.</summary>
+    /// <summary>A brand-new building starts editable, expanded, and with one empty CIDR ready
+    /// to fill in.</summary>
     public BuildingItem(string name, ObservableCollection<BuildingItem>? owner = null)
     {
         this.name = name;
         notes = "";
         isEditing = true;
         Owner = owner;
+        Children.Add(new NetworkRangeItem(this));
     }
 
     public Building ToBuilding() => new()
