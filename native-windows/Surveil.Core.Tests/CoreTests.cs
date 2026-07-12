@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Sockets;
 using Surveil.Core;
 using Xunit;
 
@@ -6,6 +7,59 @@ namespace Surveil.Core.Tests;
 
 public sealed class CoreTests
 {
+    [Fact]
+    public async Task ScannerFindsListenerAndReportsProgress()
+    {
+        var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        try
+        {
+            var port = ((IPEndPoint)listener.LocalEndpoint).Port;
+            var updates = new List<ScanProgress>();
+            var progress = new InlineProgress<ScanProgress>(updates.Add);
+            var found = await new CameraScanner().ScanAsync(
+                [IPAddress.Loopback, IPAddress.Parse("127.0.0.2")], port, 2,
+                TimeSpan.FromMilliseconds(300), progress);
+            Assert.Contains(IPAddress.Loopback, found);
+            Assert.Equal(2, updates[^1].Scanned);
+            Assert.Equal(1, updates[^1].Found);
+        }
+        finally
+        {
+            listener.Stop();
+        }
+    }
+
+    [Fact]
+    public async Task JsonStoreRoundTripsConfigurationAndInventory()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"surveil-tests-{Guid.NewGuid():N}");
+        try
+        {
+            var store = new JsonStore(directory);
+            var config = new SurveilConfig { Buildings = [new Building {
+                Name = "Example", Ranges = [new NetworkRange { Name = "Main", Cidr = "192.168.10.0/24" }]
+            }]};
+            await store.SaveConfigAsync(config);
+            Assert.Equal("Example", (await store.LoadConfigAsync()).Buildings[0].Name);
+            await store.SaveInventoryAsync(new Inventory { LastScan = 123, Cameras = [Record("192.168.10.5")] });
+            Assert.Equal((ulong)123, (await store.LoadInventoryAsync()).LastScan);
+            Assert.DoesNotContain(Directory.EnumerateFiles(directory).Select(Path.GetFileName),
+                name => name?.EndsWith(".tmp", StringComparison.OrdinalIgnoreCase) == true);
+        }
+        finally
+        {
+            if (Directory.Exists(directory)) Directory.Delete(directory, true);
+        }
+    }
+
+    [Fact]
+    public void BuildsAndParsesWsDiscoveryMessages()
+    {
+        Assert.Contains("NetworkVideoTransmitter", WsDiscovery.BuildProbe());
+        const string xml = "<d:ProbeMatch xmlns:d='urn:test'><d:XAddrs>http://192.168.10.7/onvif/device_service</d:XAddrs></d:ProbeMatch>";
+        Assert.Equal("http://192.168.10.7/onvif/device_service", WsDiscovery.ExtractXAddresses(xml));
+    }
     [Fact]
     public void ExpandsPrivateRangesAndRejectsHugeScans()
     {
@@ -56,4 +110,9 @@ public sealed class CoreTests
         Ip = ip, Building = "Hall", Area = "First Floor", FirstSeen = 100, LastSeen = 100
     };
     private static FoundCamera Found(string ip) => new() { Ip = ip, Building = "Hall", Area = "First Floor" };
+
+    private sealed class InlineProgress<T>(Action<T> report) : IProgress<T>
+    {
+        public void Report(T value) => report(value);
+    }
 }
