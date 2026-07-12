@@ -110,8 +110,10 @@ public sealed class BulkProvisioningTests
             deviceFactory: _ => new RecordingDevice(),
             videoFactory: _ => fake = new FakeVideo(new[]
             {
-                new VideoEncoderInfo("main", vga, 15f, new[] { vga, hd, uhd }, new[] { 30f, 15f }),
-                new VideoEncoderInfo("sub", vga, 15f, new[] { new OnvifResolution(640, 480), vga }, new[] { 30f, 25f }),
+                new VideoEncoderInfo("main", true, "H264", vga, 15f,
+                    new[] { new CodecCapability("H264", new[] { vga, hd, uhd }, new[] { 30f, 15f }) }),
+                new VideoEncoderInfo("sub", true, "H264", vga, 15f,
+                    new[] { new CodecCapability("H264", new[] { new OnvifResolution(640, 480), vga }, new[] { 30f, 25f }) }),
             }));
 
         var result = Assert.Single(await service.ProvisionAsync(
@@ -120,8 +122,9 @@ public sealed class BulkProvisioningTests
 
         Assert.True(result.Success);
         // Every stream configured, each to its OWN max resolution + max frame rate.
-        Assert.Equal(("main", uhd, (float?)30f), fake!.Applied.Single(a => a.Token == "main"));
-        Assert.Equal(("sub", vga, (float?)30f), fake.Applied.Single(a => a.Token == "sub"));
+        Assert.Equal(uhd, fake!.Applied.Single(a => a.Token == "main").Resolution);
+        Assert.Equal(30f, fake.Applied.Single(a => a.Token == "main").FrameRate);
+        Assert.Equal(vga, fake.Applied.Single(a => a.Token == "sub").Resolution);
         var main = result.Video.Single(v => v.ConfigurationToken == "main");
         Assert.Equal(uhd, main.AppliedResolution);
         Assert.Equal(30f, main.AppliedFrameRate);
@@ -135,8 +138,9 @@ public sealed class BulkProvisioningTests
         var uhd = new OnvifResolution(3840, 2160);
         // Camera accepts 4K but only at 15fps, even though 30 is in its advertised list.
         var fake = new FakeVideo(
-            new[] { new VideoEncoderInfo("main", new OnvifResolution(1920, 1080), 30f, new[] { uhd }, new[] { 30f, 15f }) },
-            camera: (resolution, frameRate) => new VideoEncoderState(resolution, frameRate == 30f ? 15f : frameRate));
+            new[] { new VideoEncoderInfo("main", true, "H264", new OnvifResolution(1920, 1080), 30f,
+                new[] { new CodecCapability("H264", new[] { uhd }, new[] { 30f, 15f }) }) },
+            camera: (codec, resolution, frameRate) => new VideoEncoderState(codec ?? "H264", resolution, frameRate == 30f ? 15f : frameRate));
         var service = new BulkProvisioningService(config, deviceFactory: _ => new RecordingDevice(), videoFactory: _ => fake);
 
         var result = Assert.Single(await service.ProvisionAsync(
@@ -150,31 +154,141 @@ public sealed class BulkProvisioningTests
         Assert.True(outcome.ClampedByCamera);
     }
 
+    [Fact]
+    public async Task PrefersRequestedCodecAndFallsBackWhenUnsupported()
+    {
+        var config = Config("Hall", "Main", "10.200.62.0/24");
+        var hd = new OnvifResolution(1920, 1080);
+        var uhd = new OnvifResolution(3840, 2160);
+        var service = new BulkProvisioningService(config,
+            deviceFactory: _ => new RecordingDevice(),
+            videoFactory: endpoint =>
+            {
+                // .1 supports H.264 + H.265 (4K only in H.265); .2 supports H.264 only.
+                var codecs = endpoint.Host.EndsWith(".1")
+                    ? new[]
+                    {
+                        new CodecCapability("H264", new[] { hd }, new[] { 30f }),
+                        new CodecCapability("H265", new[] { uhd }, new[] { 30f }),
+                    }
+                    : new[] { new CodecCapability("H264", new[] { hd }, new[] { 30f }) };
+                return new FakeVideo(
+                    new[] { new VideoEncoderInfo("main", true, "H264", hd, 30f, codecs) },
+                    camera: (codec, resolution, frameRate) => new VideoEncoderState(codec ?? "H264", resolution, frameRate));
+            });
+
+        var results = await service.ProvisionAsync(
+            service.TargetsFromAddresses([IPAddress.Parse("10.200.62.1"), IPAddress.Parse("10.200.62.2")]),
+            new BulkProvisionOptions
+            {
+                SetName = false, SetHostname = false, SetNtp = false,
+                MaximizeVideo = true, PreferredCodecs = ["H265", "H264"],
+            });
+
+        var preferred = results.Single(r => r.Address.ToString() == "10.200.62.1").Video.Single();
+        Assert.Equal("H265", preferred.AppliedCodec);
+        Assert.Equal(uhd, preferred.AppliedResolution);   // maxed within H.265
+        Assert.False(preferred.CodecFallback);
+
+        var fellBack = results.Single(r => r.Address.ToString() == "10.200.62.2").Video.Single();
+        Assert.Equal("H265", fellBack.RequestedCodec);
+        Assert.Equal("H264", fellBack.AppliedCodec);
+        Assert.Equal(hd, fellBack.AppliedResolution);     // maxed within H.264
+        Assert.True(fellBack.CodecFallback);
+    }
+
+    [Fact]
+    public async Task LeavesCodecUnchangedWhenCameraCannotSwitch()
+    {
+        var config = Config("Hall", "Main", "10.200.62.0/24");
+        var hd = new OnvifResolution(1920, 1080);
+        // Legacy camera advertises H.265 but cannot switch codec (CanSwitchCodec = false).
+        FakeVideo? fake = null;
+        var service = new BulkProvisioningService(config,
+            deviceFactory: _ => new RecordingDevice(),
+            videoFactory: _ => fake = new FakeVideo(
+                new[] { new VideoEncoderInfo("main", false, "H264", hd, 30f, new[]
+                {
+                    new CodecCapability("H264", new[] { hd }, new[] { 30f }),
+                    new CodecCapability("H265", new[] { hd }, new[] { 30f }),
+                }) },
+                camera: (codec, resolution, frameRate) => new VideoEncoderState(codec ?? "H264", resolution, frameRate)));
+
+        var result = Assert.Single(await service.ProvisionAsync(
+            service.TargetsFromAddresses([IPAddress.Parse("10.200.62.9")]),
+            new BulkProvisionOptions
+            {
+                SetName = false, SetHostname = false, SetNtp = false,
+                MaximizeVideo = true, PreferredCodecs = ["H265", "H264"],
+            }));
+
+        var outcome = result.Video.Single();
+        Assert.Equal("H264", outcome.AppliedCodec);      // stayed on its current codec
+        Assert.True(outcome.CodecFallback);              // reported: wanted H.265, kept H.264
+        Assert.Null(fake!.Applied.Single().Codec);       // no codec switch was attempted
+    }
+
+    [Fact]
+    public async Task DryRunReportsPlannedConfigurationWithoutWriting()
+    {
+        var config = Config("Hall", "Main", "10.200.62.0/24");
+        var hd = new OnvifResolution(1920, 1080);
+        var uhd = new OnvifResolution(3840, 2160);
+        FakeVideo? fake = null;
+        var service = new BulkProvisioningService(config,
+            deviceFactory: _ => new RecordingDevice(),
+            videoFactory: _ => fake = new FakeVideo(new[]
+            {
+                new VideoEncoderInfo("main", true, "H264", hd, 30f, new[]
+                {
+                    new CodecCapability("H264", new[] { hd }, new[] { 30f }),
+                    new CodecCapability("H265", new[] { uhd }, new[] { 30f }),
+                }),
+            }));
+
+        var result = Assert.Single(await service.ProvisionAsync(
+            service.TargetsFromAddresses([IPAddress.Parse("10.200.62.5")]),
+            new BulkProvisionOptions
+            {
+                SetName = true, SetHostname = false, SetNtp = false,
+                MaximizeVideo = true, PreferredCodecs = ["H265", "H264"], DryRun = true,
+            }));
+
+        Assert.True(result.Success);
+        Assert.Empty(fake!.Applied);                                   // nothing written to the camera
+        var outcome = result.Video.Single();
+        Assert.Equal("H265", outcome.AppliedCodec);                    // planned pick
+        Assert.Equal(uhd, outcome.AppliedResolution);                  // planned max within H.265
+        Assert.All(result.Steps, step => Assert.StartsWith("would set ", step));
+    }
+
     private static SurveilConfig Config(string building, string area, string cidr) =>
         new() { Buildings = [new Building { Name = building, Ranges = [new NetworkRange { Name = area, Cidr = cidr }] }] };
 
     private sealed class FakeVideo : IProvisionableVideo
     {
         private readonly VideoEncoderInfo[] encoders;
-        private readonly Func<OnvifResolution, float?, VideoEncoderState>? camera;
+        private readonly Func<string?, OnvifResolution, float?, VideoEncoderState>? camera;
 
-        // camera simulates the device: given the requested res+fps, returns what it actually applies.
-        public FakeVideo(VideoEncoderInfo[] encoders, Func<OnvifResolution, float?, VideoEncoderState>? camera = null)
+        // camera simulates the device: given the requested codec+res+fps, returns what it actually applies.
+        public FakeVideo(VideoEncoderInfo[] encoders,
+            Func<string?, OnvifResolution, float?, VideoEncoderState>? camera = null)
         {
             this.encoders = encoders;
             this.camera = camera;
         }
 
-        public List<(string Token, OnvifResolution Resolution, float? FrameRate)> Applied { get; } = [];
+        public List<(string Token, string? Codec, OnvifResolution Resolution, float? FrameRate)> Applied { get; } = [];
 
         public Task<IReadOnlyList<VideoEncoderInfo>> GetEncodersAsync(CancellationToken cancellationToken) =>
             Task.FromResult<IReadOnlyList<VideoEncoderInfo>>(encoders);
 
-        public Task<VideoEncoderState> ApplyAsync(string configurationToken, OnvifResolution resolution,
+        public Task<VideoEncoderState> ApplyAsync(string configurationToken, string? codec, OnvifResolution resolution,
             float? frameRate, CancellationToken cancellationToken)
         {
-            Applied.Add((configurationToken, resolution, frameRate));
-            return Task.FromResult(camera?.Invoke(resolution, frameRate) ?? new VideoEncoderState(resolution, frameRate));
+            Applied.Add((configurationToken, codec, resolution, frameRate));
+            return Task.FromResult(camera?.Invoke(codec, resolution, frameRate)
+                ?? new VideoEncoderState(codec ?? "H264", resolution, frameRate));
         }
 
         public void Dispose() { }
