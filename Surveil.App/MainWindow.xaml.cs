@@ -31,11 +31,12 @@ public sealed partial class MainWindow : Window
             "buildings" => typeof(BuildingsPage),
             "scan" => typeof(ScanPage),
             "discover" => typeof(DiscoverPage),
-            "provision" => typeof(ProvisionPage),
             "settings" => typeof(SettingsPage),
             _ => typeof(BuildingsPage),
         };
 
         ContentFrame.Navigate(page);
     }
+
+    private void CloseProvision_Click(object sender, RoutedEventArgs e) => ProvisionDrawer.IsPaneOpen = false;
 }

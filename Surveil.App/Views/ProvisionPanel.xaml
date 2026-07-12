@@ -1,0 +1,152 @@
+<?xml version="1.0" encoding="utf-8"?>
+<UserControl
+    x:Class="Surveil.App.Views.ProvisionPanel"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:muxc="using:Microsoft.UI.Xaml.Controls"
+    xmlns:conv="using:Surveil.App.Converters"
+    xmlns:vm="using:Surveil.App.ViewModels">
+
+    <UserControl.Resources>
+        <conv:StringToBoolConverter x:Key="StringToBool" />
+        <conv:ErrorToSeverityConverter x:Key="ErrorToSeverity" />
+        <conv:InverseBoolConverter x:Key="InverseBool" />
+        <conv:BoolToVisibilityConverter x:Key="BoolToVis" />
+        <conv:BoolToBrushConverter x:Key="BoolToBrush" />
+        <conv:StringToVisibilityConverter x:Key="StringToVis" />
+        <conv:CountZeroToVisibilityConverter x:Key="CountZeroToVis" />
+    </UserControl.Resources>
+
+    <Grid Padding="0,0,0,0" RowSpacing="8">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <muxc:ProgressBar Grid.Row="0" Margin="16,0"
+                Value="{Binding ProgressValue}" Maximum="{Binding ProgressMaximum}"
+                IsIndeterminate="{Binding ProgressIndeterminate}"
+                Visibility="{Binding IsBusy, Converter={StaticResource BoolToVis}}" />
+
+        <muxc:InfoBar Grid.Row="1" Margin="12,0"
+                IsOpen="{Binding StatusMessage, Converter={StaticResource StringToBool}}"
+                Severity="{Binding HasError, Converter={StaticResource ErrorToSeverity}}"
+                Message="{Binding StatusMessage}" IsClosable="True" />
+
+        <muxc:Pivot Grid.Row="2">
+            <!-- Setup -->
+            <muxc:PivotItem Header="Setup">
+                <ScrollViewer>
+                    <StackPanel Spacing="10" Padding="4,4,4,12">
+                        <TextBox Header="ONVIF username" Text="{Binding Username, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                        <PasswordBox x:Name="PasswordInput" Header="ONVIF password" PasswordChanged="OnPasswordChanged" />
+                        <TextBox Header="Targets (IPs or CIDR ranges)" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="56"
+                                 PlaceholderText="10.20.0.0/24  10.20.1.5"
+                                 Text="{Binding Targets, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+
+                        <muxc:Expander Header="Identity" IsExpanded="True" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
+                            <StackPanel Spacing="8">
+                                <CheckBox Content="Set name" IsChecked="{Binding SetName, Mode=TwoWay}" />
+                                <CheckBox Content="Set hostname" IsChecked="{Binding SetHostname, Mode=TwoWay}" />
+                                <CheckBox Content="Set NTP" IsChecked="{Binding SetNtp, Mode=TwoWay}" />
+                                <TextBox Header="NTP POSIX time zone (blank = this computer)"
+                                         Text="{Binding NtpPosixTimeZone, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                            </StackPanel>
+                        </muxc:Expander>
+
+                        <muxc:Expander Header="Video" IsExpanded="True" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
+                            <StackPanel Spacing="8">
+                                <CheckBox Content="Maximize video (resolution-first)" IsChecked="{Binding MaximizeVideo, Mode=TwoWay}" />
+                                <TextBox Header="Preferred codecs" IsEnabled="{Binding MaximizeVideo}"
+                                         Text="{Binding PreferredCodecs, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                            </StackPanel>
+                        </muxc:Expander>
+
+                        <CheckBox Content="Skip cameras outside the map" IsChecked="{Binding SkipUnknownLocation, Mode=TwoWay}" />
+                        <muxc:NumberBox Header="Max concurrency" Value="{Binding MaxConcurrency, Mode=TwoWay}" Minimum="1" Maximum="64" SpinButtonPlacementMode="Compact" />
+                        <ToggleSwitch Header="Dry run (read only, write nothing)" IsOn="{Binding DryRun, Mode=TwoWay}" OnContent="On" OffContent="Off" />
+
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Button Content="Preview" Command="{Binding PreviewCommand}" IsEnabled="{Binding IsBusy, Converter={StaticResource InverseBool}}" />
+                            <Button Content="Provision" Style="{StaticResource AccentButtonStyle}"
+                                    Command="{Binding ProvisionCommand}" IsEnabled="{Binding IsBusy, Converter={StaticResource InverseBool}}" />
+                            <Button Content="Cancel" Command="{Binding CancelCommand}" IsEnabled="{Binding IsBusy}" />
+                        </StackPanel>
+                    </StackPanel>
+                </ScrollViewer>
+            </muxc:PivotItem>
+
+            <!-- Plan -->
+            <muxc:PivotItem Header="Plan">
+                <Grid>
+                    <ListView ItemsSource="{Binding Plans}"
+                              BorderThickness="1" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" CornerRadius="6">
+                        <ListView.ItemContainerStyle>
+                            <Style TargetType="ListViewItem">
+                                <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                            </Style>
+                        </ListView.ItemContainerStyle>
+                        <ListView.ItemTemplate>
+                            <DataTemplate x:DataType="vm:ProvisionPlanRow">
+                                <StackPanel Padding="4,6" Spacing="2">
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <TextBlock Text="{x:Bind Address}" FontFamily="Consolas" FontWeight="SemiBold" />
+                                        <TextBlock Text="{x:Bind Location}" Opacity="0.7" />
+                                    </StackPanel>
+                                    <TextBlock Text="{x:Bind Name}" FontSize="12" Opacity="0.9" />
+                                    <TextBlock Text="{x:Bind Hostname}" FontSize="11" Opacity="0.6" FontFamily="Consolas" />
+                                </StackPanel>
+                            </DataTemplate>
+                        </ListView.ItemTemplate>
+                    </ListView>
+                    <TextBlock Text="No plan yet — Preview to see derived names." TextWrapping="Wrap"
+                               HorizontalAlignment="Center" VerticalAlignment="Center" Opacity="0.55" IsHitTestVisible="False"
+                               Visibility="{Binding Plans.Count, Converter={StaticResource CountZeroToVis}}" />
+                </Grid>
+            </muxc:PivotItem>
+
+            <!-- Results -->
+            <muxc:PivotItem Header="Results">
+                <Grid>
+                    <ListView ItemsSource="{Binding Results}"
+                              BorderThickness="1" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" CornerRadius="6">
+                        <ListView.ItemContainerStyle>
+                            <Style TargetType="ListViewItem">
+                                <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                            </Style>
+                        </ListView.ItemContainerStyle>
+                        <ListView.ItemTemplate>
+                            <DataTemplate x:DataType="vm:ProvisionResultRow">
+                                <Grid ColumnSpacing="10" Padding="4,8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <FontIcon Grid.Column="0" FontFamily="Segoe MDL2 Assets" Glyph="{x:Bind Glyph}"
+                                              Foreground="{x:Bind Success, Converter={StaticResource BoolToBrush}}"
+                                              VerticalAlignment="Top" Margin="0,2,0,0" />
+                                    <StackPanel Grid.Column="1" Spacing="2">
+                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                            <TextBlock Text="{x:Bind Address}" FontFamily="Consolas" FontWeight="SemiBold" />
+                                            <TextBlock Text="{x:Bind Location}" Opacity="0.8" />
+                                        </StackPanel>
+                                        <TextBlock Text="{x:Bind Steps}" Opacity="0.9" TextWrapping="Wrap" FontSize="12"
+                                                   Visibility="{x:Bind Steps, Converter={StaticResource StringToVis}}" />
+                                        <TextBlock Text="{x:Bind VideoSummary}" FontFamily="Consolas" FontSize="11" Opacity="0.9" TextWrapping="Wrap"
+                                                   Visibility="{x:Bind HasVideo, Converter={StaticResource BoolToVis}}" />
+                                        <TextBlock Text="{x:Bind Error}" Foreground="{ThemeResource SystemFillColorCriticalBrush}" TextWrapping="Wrap" FontSize="12"
+                                                   Visibility="{x:Bind HasError, Converter={StaticResource BoolToVis}}" />
+                                    </StackPanel>
+                                </Grid>
+                            </DataTemplate>
+                        </ListView.ItemTemplate>
+                    </ListView>
+                    <TextBlock Text="No results yet — Preview or Provision to populate." TextWrapping="Wrap"
+                               HorizontalAlignment="Center" VerticalAlignment="Center" Opacity="0.55" IsHitTestVisible="False"
+                               Visibility="{Binding Results.Count, Converter={StaticResource CountZeroToVis}}" />
+                </Grid>
+            </muxc:PivotItem>
+        </muxc:Pivot>
+    </Grid>
+</UserControl>
