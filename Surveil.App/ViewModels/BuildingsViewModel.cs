@@ -33,7 +33,11 @@ public sealed partial class BuildingsViewModel : ObservableObject
 
     public string DataDirectory => session.DataDirectory;
 
-    public BuildingsViewModel() => Load();
+    public BuildingsViewModel()
+    {
+        Load();
+        _ = LoadInventoryAsync();
+    }
 
     public void Load()
     {
@@ -42,6 +46,36 @@ public sealed partial class BuildingsViewModel : ObservableObject
             Buildings.Add(new BuildingItem(building, Buildings));
         // There is always at least one building — a fresh/empty map starts with an empty one.
         if (Buildings.Count == 0) Buildings.Add(new BuildingItem("Building 1", Buildings));
+    }
+
+    /// <summary>Populate the tree from the saved inventory (cameras.json): each known camera under
+    /// its mapped CIDR, or in the Unmapped group. This makes the map double as the inventory view.</summary>
+    public async Task LoadInventoryAsync()
+    {
+        try
+        {
+            var inventory = await session.Store.LoadInventoryAsync();
+            foreach (var range in Buildings.SelectMany(b => b.Children)) range.Cameras.Clear();
+            UnmappedCameras.Clear();
+
+            var sets = RangeAddressSets();
+            foreach (var record in inventory.Cameras)
+            {
+                var camera = new CameraStatus
+                {
+                    Ip = record.Ip, Building = record.Building, Area = record.Area,
+                    FirstSeen = record.FirstSeen, LastSeen = record.LastSeen,
+                };
+                var range = sets.FirstOrDefault(kv => kv.Value.Contains(record.Ip)).Key;
+                if (range is not null) AddCamera(range.Cameras, camera);
+                else AddCamera(UnmappedCameras, camera);
+            }
+            if (UnmappedCameras.Count > 0) UnmappedExpanded = true;
+        }
+        catch (Exception ex)
+        {
+            AppLog.Write(ex);
+        }
     }
 
     [RelayCommand]
@@ -71,6 +105,7 @@ public sealed partial class BuildingsViewModel : ObservableObject
             var config = await session.Service.ImportConfigAsync(path);
             session.Config = config;
             Load();
+            await LoadInventoryAsync();
             HasError = false;
             StatusMessage = $"Imported {config.Buildings.Count} buildings from {path}.";
         }
