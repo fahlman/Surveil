@@ -5,16 +5,21 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:muxc="using:Microsoft.UI.Xaml.Controls"
     xmlns:views="using:Surveil.App.Views"
+    xmlns:conv="using:Surveil.App.Converters"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d"
     Title="Surveil">
 
     <Grid>
+        <Grid.Resources>
+            <conv:BoolToVisibilityConverter x:Key="BoolToVis" />
+        </Grid.Resources>
         <muxc:SplitView
             x:Name="ProvisionDrawer"
             PanePlacement="Right"
-            DisplayMode="Inline"
+            DisplayMode="CompactInline"
+            CompactPaneLength="48"
             OpenPaneLength="460"
             IsPaneOpen="True">
 
@@ -24,11 +29,42 @@
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="*" />
                     </Grid.RowDefinitions>
-                    <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="10" Padding="16,12,8,8" VerticalAlignment="Center">
-                        <FontIcon Glyph="&#xE9F9;" FontSize="18" />
-                        <TextBlock Text="Provision" Style="{StaticResource SubtitleTextBlockStyle}" />
-                    </StackPanel>
-                    <views:ProvisionPanel Grid.Row="1" />
+                    <Grid Grid.Row="0" Padding="16,10,6,8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock
+                            Grid.Column="0"
+                            Text="Provision"
+                            Style="{StaticResource SubtitleTextBlockStyle}"
+                            VerticalAlignment="Center"
+                            Visibility="{Binding IsPaneOpen, ElementName=ProvisionDrawer, Converter={StaticResource BoolToVis}}" />
+                        <Button
+                            Grid.Column="1"
+                            Click="ToggleProvision_Click"
+                            Background="Transparent"
+                            BorderThickness="0"
+                            Padding="9"
+                            VerticalAlignment="Center"
+                            HorizontalAlignment="Right"
+                            ToolTipService.ToolTip="Show or hide the Provision panel"
+                            AutomationProperties.Name="Show or hide the Provision panel">
+                            <Grid>
+                                <FontIcon
+                                    Glyph="&#xE76C;"
+                                    FontSize="16"
+                                    Visibility="{Binding IsPaneOpen, ElementName=ProvisionDrawer, Converter={StaticResource BoolToVis}}" />
+                                <FontIcon
+                                    Glyph="&#xE9F9;"
+                                    FontSize="18"
+                                    Visibility="{Binding IsPaneOpen, ElementName=ProvisionDrawer, Converter={StaticResource BoolToVis}, ConverterParameter=invert}" />
+                            </Grid>
+                        </Button>
+                    </Grid>
+                    <views:ProvisionPanel
+                        Grid.Row="1"
+                        Visibility="{Binding IsPaneOpen, ElementName=ProvisionDrawer, Converter={StaticResource BoolToVis}}" />
                 </Grid>
             </muxc:SplitView.Pane>
 
