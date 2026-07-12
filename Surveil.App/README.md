@@ -5,16 +5,24 @@ Unpackaged WinUI 3 (Windows App SDK), MVVM via CommunityToolkit.Mvvm.
 
 ## Screens
 
-| Page       | What it does                                                                 | Core API |
-|------------|------------------------------------------------------------------------------|----------|
-| **Buildings** | Edit the building map (buildings → CIDR ranges); save / import / export JSON | `SurveilService.{Get,Save,Import,Export}ConfigAsync` |
-| **Scan**      | TCP port sweep of IPs/CIDRs; live progress; new/online/offline vs inventory  | `SurveilService.ScanAsync` |
-| **Discover**  | WS-Discovery multicast; lists ONVIF responders tagged by building/area       | `SurveilService.DiscoverAsync` |
-| **Provision** | Derive name/hostname from the map, set NTP, maximize video (codec pref, resolution-first); **dry-run** preview; truthful per-camera results | `BulkProvisioningService.{Plan,ProvisionAsync}` |
+Left-nav pages, plus **Provision** as a toggle-able right-side drawer and **Settings** in the footer.
 
-The building map and ONVIF credentials are shared across pages via `Services/AppSession`.
-The password is held in memory only — it is never written to disk. Pages use
+| Page/panel | What it does                                                                 | Core API |
+|------------|------------------------------------------------------------------------------|----------|
+| **Buildings** | Edit the building map (buildings → CIDR ranges); save / import / export JSON. List updates live on rename. | `SurveilService.{Get,Save,Import,Export}ConfigAsync` |
+| **Scan**      | TCP port sweep of IPs/CIDRs; live progress; new/online/offline vs inventory. Pre-flight validation names bad tokens. | `SurveilService.ScanAsync` |
+| **Discover**  | WS-Discovery multicast; lists ONVIF responders tagged by building/area       | `SurveilService.DiscoverAsync` |
+| **Inventory** | Read-only view of saved cameras (cameras.json) with quick-filter, Copy IPs, and CSV export | `JsonStore.LoadInventoryAsync` |
+| **Provision** *(drawer)* | Derive name/hostname from the map, set NTP, maximize video (codec pref, resolution-first); **dry-run** preview; truthful per-camera results | `BulkProvisioningService.{Plan,ProvisionAsync}` |
+| **Settings**  | Persisted defaults (username, port/timeout/concurrency, codecs, dry-run). Never stores the password. | `SettingsStore` → settings.json |
+
+Scan and Discover have a **"Send to Provision →"** button that loads the found cameras into the
+Provision drawer and opens it. The building map and ONVIF credentials are shared across pages via
+`Services/AppSession`. The password is held in memory only — never written to disk. Pages use
 `NavigationCacheMode=Required`, so what you type on one page survives switching tabs.
+
+An app-level `UnhandledException` handler logs to `logs/surveil.log` under the data dir and shows an
+error dialog instead of crashing; view-model operations report failures in an InfoBar, not a crash.
 
 ## Prerequisites (one-time)
 
@@ -44,9 +52,11 @@ Runtime, so no separate runtime install is required to run it.
 ## Status
 
 Builds clean (0 warnings / 0 errors) with .NET SDK 10.0.301 and in CI (`build-app` job).
-Verified at runtime: launches, all four pages navigate, and the Buildings editor works
-(add/rename with live list updates). Not yet exercised against live hardware: the actual
-Scan/Discover/Provision network operations.
+Verified at runtime (launch + UI Automation): navigation across all pages; Buildings editor
+(add/rename with live updates); Scan input validation; Settings persistence across restart;
+Inventory view + quick-filter + Copy IPs + CSV export. Not yet exercised against live hardware:
+the actual Scan/Discover/Provision network operations and the "Send to Provision" data hop
+(both need a live network).
 
 ## Notes
 
