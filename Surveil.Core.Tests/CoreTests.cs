@@ -224,6 +224,20 @@ public sealed class CoreTests
     }
 
     [Fact]
+    public void DiscoveryKeepsOnlyOnvifCameras()
+    {
+        const string camera = "<d:ProbeMatch xmlns:d='urn:disc' xmlns:dn='http://www.onvif.org/ver10/network/wsdl'>" +
+            "<d:Types>dn:NetworkVideoTransmitter</d:Types><d:XAddrs>http://10.0.0.5/onvif/device_service</d:XAddrs></d:ProbeMatch>";
+        // A Synology NAS / WSD device answers the same probe but advertises a non-camera type.
+        const string nas = "<d:ProbeMatch xmlns:d='urn:disc' xmlns:wsdp='urn:wsdp'>" +
+            "<d:Types>wsdp:Device</d:Types><d:XAddrs>http://10.0.0.9/</d:XAddrs></d:ProbeMatch>";
+
+        Assert.True(WsDiscovery.IsOnvifCamera(camera));
+        Assert.False(WsDiscovery.IsOnvifCamera(nas));
+        Assert.False(WsDiscovery.IsOnvifCamera("not xml at all"));
+    }
+
+    [Fact]
     public async Task MigratesEveryLegacyConfigurationShape()
     {
         var directory = Path.Combine(Path.GetTempPath(), $"surveil-migration-{Guid.NewGuid():N}");
