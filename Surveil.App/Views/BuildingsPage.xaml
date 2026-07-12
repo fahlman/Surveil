@@ -14,6 +14,7 @@
         <conv:ErrorToSeverityConverter x:Key="ErrorToSeverity" />
         <conv:BoolToVisibilityConverter x:Key="BoolToVis" />
         <conv:CountZeroToVisibilityConverter x:Key="CountZeroToVis" />
+        <conv:CountPositiveToVisibilityConverter x:Key="CountPositiveToVis" />
         <conv:InverseBoolConverter x:Key="InverseBool" />
     </Page.Resources>
 
@@ -36,12 +37,15 @@
             <Button Content="Export…" Click="OnExportClick" />
             <Border Width="1" Height="24" Margin="4,0" Background="{ThemeResource CardStrokeColorDefaultBrush}" />
             <Button Content="Scan checked" Command="{Binding ScanSelectedCommand}"
-                    IsEnabled="{Binding IsScanning, Converter={StaticResource InverseBool}}"
+                    IsEnabled="{Binding IsBusy, Converter={StaticResource InverseBool}}"
                     ToolTipService.ToolTip="Scan the checked CIDRs and list cameras under each" />
-            <Button Content="Cancel" Command="{Binding CancelScanCommand}" IsEnabled="{Binding IsScanning}" />
+            <Button Content="Discover" Command="{Binding DiscoverCommand}"
+                    IsEnabled="{Binding IsBusy, Converter={StaticResource InverseBool}}"
+                    ToolTipService.ToolTip="Find ONVIF cameras on the local network; unmapped ones go to the Unmapped group" />
+            <Button Content="Cancel" Command="{Binding CancelCommand}" IsEnabled="{Binding IsBusy}" />
             <muxc:ProgressRing Width="20" Height="20" VerticalAlignment="Center"
-                    IsActive="{Binding IsScanning}"
-                    Visibility="{Binding IsScanning, Converter={StaticResource BoolToVis}}" />
+                    IsActive="{Binding IsBusy}"
+                    Visibility="{Binding IsBusy, Converter={StaticResource BoolToVis}}" />
         </StackPanel>
 
         <muxc:InfoBar Grid.Row="2"
@@ -50,6 +54,7 @@
             Message="{Binding StatusMessage}" IsClosable="True" />
 
         <ScrollViewer Grid.Row="3">
+            <StackPanel>
             <ItemsControl ItemsSource="{Binding Buildings}">
                 <ItemsControl.ItemTemplate>
                     <DataTemplate x:DataType="vm:BuildingItem">
@@ -186,6 +191,48 @@
                     </DataTemplate>
                 </ItemsControl.ItemTemplate>
             </ItemsControl>
+
+            <!-- Unmapped group: cameras found outside every mapped CIDR (from Discover) -->
+            <StackPanel Margin="0,6,0,0"
+                        Visibility="{Binding UnmappedCameras.Count, Converter={StaticResource CountPositiveToVis}}">
+                <Grid ColumnSpacing="4" Padding="6,4" CornerRadius="6"
+                      Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                      BorderThickness="1" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <Button Grid.Column="0" Command="{Binding ToggleUnmappedCommand}"
+                            Background="Transparent" BorderThickness="0" Padding="6,4"
+                            ToolTipService.ToolTip="Expand / collapse">
+                        <Grid>
+                            <FontIcon Glyph="&#xE70D;" FontFamily="Segoe MDL2 Assets" FontSize="12"
+                                      Visibility="{Binding UnmappedExpanded, Converter={StaticResource BoolToVis}}" />
+                            <FontIcon Glyph="&#xE76C;" FontFamily="Segoe MDL2 Assets" FontSize="12"
+                                      Visibility="{Binding UnmappedExpanded, Converter={StaticResource BoolToVis}, ConverterParameter=invert}" />
+                        </Grid>
+                    </Button>
+                    <TextBlock Grid.Column="1" Text="Unmapped" VerticalAlignment="Center" FontWeight="SemiBold" Opacity="0.85" />
+                </Grid>
+                <ItemsControl ItemsSource="{Binding UnmappedCameras}" Margin="30,4,0,0"
+                              Visibility="{Binding UnmappedExpanded, Converter={StaticResource BoolToVis}}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="core:CameraStatus">
+                            <Grid ColumnSpacing="8" Padding="0,2">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="150" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <FontIcon Grid.Column="0" Glyph="&#xE722;" FontFamily="Segoe MDL2 Assets" FontSize="12" Opacity="0.7" VerticalAlignment="Center" />
+                                <TextBlock Grid.Column="1" Text="{x:Bind Ip}" FontFamily="Consolas" VerticalAlignment="Center" />
+                                <TextBlock Grid.Column="2" Text="{x:Bind Status}" Opacity="0.7" VerticalAlignment="Center" />
+                            </Grid>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </StackPanel>
+            </StackPanel>
         </ScrollViewer>
     </Grid>
 </Page>

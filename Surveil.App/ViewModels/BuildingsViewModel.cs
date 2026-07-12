@@ -15,13 +15,21 @@ public sealed partial class BuildingsViewModel : ObservableObject
 
     [ObservableProperty] private string statusMessage = "";
     [ObservableProperty] private bool hasError;
-    [ObservableProperty] private bool isScanning;
+    [ObservableProperty][NotifyPropertyChangedFor(nameof(IsBusy))] private bool isScanning;
+    [ObservableProperty][NotifyPropertyChangedFor(nameof(IsBusy))] private bool isDiscovering;
     [ObservableProperty] private double scanProgressValue;
     [ObservableProperty] private double scanProgressMaximum = 1;
+    [ObservableProperty] private bool unmappedExpanded = true;
 
-    private CancellationTokenSource? scanCts;
+    /// <summary>True while a scan or discovery is running.</summary>
+    public bool IsBusy => IsScanning || IsDiscovering;
+
+    private CancellationTokenSource? busyCts;
 
     public ObservableCollection<BuildingItem> Buildings { get; } = new();
+
+    /// <summary>Cameras found (by discovery) that fall outside every mapped CIDR.</summary>
+    public ObservableCollection<CameraStatus> UnmappedCameras { get; } = new();
 
     public string DataDirectory => session.DataDirectory;
 
@@ -97,7 +105,7 @@ public sealed partial class BuildingsViewModel : ObservableObject
     [RelayCommand]
     private async Task ScanSelectedAsync()
     {
-        if (IsScanning) return;
+        if (IsBusy) return;
 
         var selected = Buildings.SelectMany(b => b.Children)
             .Where(r => r.IsSelected && !string.IsNullOrWhiteSpace(r.Cidr))
@@ -138,7 +146,7 @@ public sealed partial class BuildingsViewModel : ObservableObject
         ScanProgressValue = 0;
         ScanProgressMaximum = Math.Max(1, targets.Length);
         StatusMessage = "Scanning…";
-        scanCts = new CancellationTokenSource();
+        busyCts = new CancellationTokenSource();
         var settings = session.Settings;
 
         var progress = new Progress<ScanProgress>(p =>
@@ -152,14 +160,14 @@ public sealed partial class BuildingsViewModel : ObservableObject
         {
             var statuses = await session.Service.ScanAsync(targets, settings.DefaultPort,
                 settings.DefaultConcurrency, TimeSpan.FromMilliseconds(settings.DefaultTimeoutMs),
-                progress, scanCts.Token);
+                progress, busyCts.Token);
 
             var found = 0;
             foreach (var camera in statuses.Where(s => s.Status != "offline"))
             {
                 var range = addressesByRange.FirstOrDefault(kv => kv.Value.Contains(camera.Ip)).Key;
                 if (range is null) continue;
-                range.Cameras.Add(camera);
+                AddCamera(range.Cameras, camera);
                 found++;
             }
             StatusMessage = $"Found {found} camera(s) across {addressesByRange.Count} CIDR(s).";
@@ -177,13 +185,98 @@ public sealed partial class BuildingsViewModel : ObservableObject
         finally
         {
             IsScanning = false;
-            scanCts?.Dispose();
-            scanCts = null;
+            busyCts?.Dispose();
+            busyCts = null;
+        }
+    }
+
+    /// <summary>Discover cameras on the local network; each lands under its CIDR, or in the
+    /// Unmapped group if it falls outside every mapped range.</summary>
+    [RelayCommand]
+    private async Task DiscoverAsync()
+    {
+        if (IsBusy) return;
+
+        IsDiscovering = true;
+        HasError = false;
+        StatusMessage = "Discovering…";
+        busyCts = new CancellationTokenSource();
+        try
+        {
+            var result = await session.Service.DiscoverAsync(
+                TimeSpan.FromMilliseconds(session.Settings.DiscoverTimeoutMs), busyCts.Token);
+
+            var sets = RangeAddressSets();
+            UnmappedCameras.Clear();
+            var unmapped = 0;
+            foreach (var camera in result.Cameras)
+            {
+                var status = new CameraStatus
+                {
+                    Ip = camera.Ip, Building = camera.Building, Area = camera.Area, Status = "discovered",
+                };
+                var range = sets.FirstOrDefault(kv => kv.Value.Contains(camera.Ip)).Key;
+                if (range is not null)
+                {
+                    AddCamera(range.Cameras, status);
+                }
+                else
+                {
+                    AddCamera(UnmappedCameras, status);
+                    unmapped++;
+                }
+            }
+            if (UnmappedCameras.Count > 0) UnmappedExpanded = true;
+            StatusMessage = $"Discovered {result.Cameras.Count} camera(s) — {unmapped} unmapped.";
+        }
+        catch (OperationCanceledException)
+        {
+            StatusMessage = "Discovery cancelled.";
+        }
+        catch (Exception ex)
+        {
+            HasError = true;
+            StatusMessage = ex.Message;
+            AppLog.Write(ex);
+        }
+        finally
+        {
+            IsDiscovering = false;
+            busyCts?.Dispose();
+            busyCts = null;
         }
     }
 
     [RelayCommand]
-    private void CancelScan() => scanCts?.Cancel();
+    private void Cancel() => busyCts?.Cancel();
+
+    [RelayCommand]
+    private void ToggleUnmapped() => UnmappedExpanded = !UnmappedExpanded;
+
+    /// <summary>Expand every valid mapped CIDR to the set of addresses it covers.</summary>
+    private Dictionary<NetworkRangeItem, HashSet<string>> RangeAddressSets()
+    {
+        var sets = new Dictionary<NetworkRangeItem, HashSet<string>>();
+        foreach (var range in Buildings.SelectMany(b => b.Children)
+                     .Where(r => !string.IsNullOrWhiteSpace(r.Cidr)))
+        {
+            try
+            {
+                sets[range] = NetworkRanges.ExpandPrivate(new[] { range.Cidr }).Select(ip => ip.ToString()).ToHashSet();
+            }
+            catch (Exception ex)
+            {
+                AppLog.Write(ex);
+            }
+        }
+        return sets;
+    }
+
+    private static void AddCamera(ObservableCollection<CameraStatus> cameras, CameraStatus camera)
+    {
+        if (cameras.Any(c => c.Ip == camera.Ip)) return;  // dedupe by IP
+        cameras.Add(camera);
+    }
 
     private SurveilConfig ToConfig() =>
         new() { Buildings = Buildings.Select(building => building.ToBuilding()).ToList() };
