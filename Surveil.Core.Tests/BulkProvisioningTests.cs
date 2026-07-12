@@ -228,6 +228,40 @@ public sealed class BulkProvisioningTests
         Assert.Null(fake!.Applied.Single().Codec);       // no codec switch was attempted
     }
 
+    [Fact]
+    public async Task DryRunReportsPlannedConfigurationWithoutWriting()
+    {
+        var config = Config("Hall", "Main", "10.200.62.0/24");
+        var hd = new OnvifResolution(1920, 1080);
+        var uhd = new OnvifResolution(3840, 2160);
+        FakeVideo? fake = null;
+        var service = new BulkProvisioningService(config,
+            deviceFactory: _ => new RecordingDevice(),
+            videoFactory: _ => fake = new FakeVideo(new[]
+            {
+                new VideoEncoderInfo("main", true, "H264", hd, 30f, new[]
+                {
+                    new CodecCapability("H264", new[] { hd }, new[] { 30f }),
+                    new CodecCapability("H265", new[] { uhd }, new[] { 30f }),
+                }),
+            }));
+
+        var result = Assert.Single(await service.ProvisionAsync(
+            service.TargetsFromAddresses([IPAddress.Parse("10.200.62.5")]),
+            new BulkProvisionOptions
+            {
+                SetName = true, SetHostname = false, SetNtp = false,
+                MaximizeVideo = true, PreferredCodecs = ["H265", "H264"], DryRun = true,
+            }));
+
+        Assert.True(result.Success);
+        Assert.Empty(fake!.Applied);                                   // nothing written to the camera
+        var outcome = result.Video.Single();
+        Assert.Equal("H265", outcome.AppliedCodec);                    // planned pick
+        Assert.Equal(uhd, outcome.AppliedResolution);                  // planned max within H.265
+        Assert.All(result.Steps, step => Assert.StartsWith("would set ", step));
+    }
+
     private static SurveilConfig Config(string building, string area, string cidr) =>
         new() { Buildings = [new Building { Name = building, Ranges = [new NetworkRange { Name = area, Cidr = cidr }] }] };
 

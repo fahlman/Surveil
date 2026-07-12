@@ -39,6 +39,9 @@ public sealed record BulkProvisionOptions
     /// wins, and resolution/frame rate are maximized within it. Null or empty leaves each encoder's
     /// codec unchanged. Cameras that cannot switch codec (legacy Media1) keep their current one.</summary>
     public IReadOnlyList<string>? PreferredCodecs { get; init; }
+    /// <summary>Preview mode: read each camera's capabilities and report exactly what would be
+    /// applied, but perform no writes. Capability reads still occur; nothing on the camera changes.</summary>
+    public bool DryRun { get; init; }
 }
 
 /// <summary>A single camera's configuration surface, abstracted so the batch orchestration is
@@ -192,21 +195,31 @@ public sealed class BulkProvisioningService
         {
             if (options.SetName || options.SetHostname || options.SetNtp)
             {
-                using var device = deviceFactory(target.DeviceEndpoint);
-                if (options.SetName)
+                if (options.DryRun)
                 {
-                    await device.SetNameAsync(plan.Name, cancellationToken);
-                    steps.Add($"name={plan.Name}");
+                    if (options.SetName) steps.Add($"would set name={plan.Name}");
+                    if (options.SetHostname && plan.Hostname is not null) steps.Add($"would set hostname={plan.Hostname}");
+                    if (options.SetNtp) steps.Add(options.NtpPosixTimeZone is null
+                        ? "would set ntp=computer-zone" : $"would set ntp={options.NtpPosixTimeZone}");
                 }
-                if (options.SetHostname && plan.Hostname is not null)
+                else
                 {
-                    var reboot = await device.SetHostnameAsync(plan.Hostname, cancellationToken);
-                    steps.Add(reboot ? $"hostname={plan.Hostname} (reboot required)" : $"hostname={plan.Hostname}");
-                }
-                if (options.SetNtp)
-                {
-                    await device.SetNtpAsync(options.NtpPosixTimeZone, cancellationToken);
-                    steps.Add(options.NtpPosixTimeZone is null ? "ntp=computer-zone" : $"ntp={options.NtpPosixTimeZone}");
+                    using var device = deviceFactory(target.DeviceEndpoint);
+                    if (options.SetName)
+                    {
+                        await device.SetNameAsync(plan.Name, cancellationToken);
+                        steps.Add($"name={plan.Name}");
+                    }
+                    if (options.SetHostname && plan.Hostname is not null)
+                    {
+                        var reboot = await device.SetHostnameAsync(plan.Hostname, cancellationToken);
+                        steps.Add(reboot ? $"hostname={plan.Hostname} (reboot required)" : $"hostname={plan.Hostname}");
+                    }
+                    if (options.SetNtp)
+                    {
+                        await device.SetNtpAsync(options.NtpPosixTimeZone, cancellationToken);
+                        steps.Add(options.NtpPosixTimeZone is null ? "ntp=computer-zone" : $"ntp={options.NtpPosixTimeZone}");
+                    }
                 }
             }
             if (options.MaximizeVideo && videoFactory is not null)
@@ -220,16 +233,18 @@ public sealed class BulkProvisioningService
                     float? maxFrameRate = codec.FrameRates.Count > 0 ? codec.FrameRates.Max() : null;
                     // Only pass a codec to switch to when it actually differs from the current one.
                     var switchTo = NormalizeCodec(codec.Codec) == NormalizeCodec(encoder.CurrentCodec) ? null : codec.Codec;
-                    var applied = await video.ApplyAsync(
-                        encoder.ConfigurationToken, switchTo, maxResolution, maxFrameRate, cancellationToken);
+                    var applied = options.DryRun
+                        ? new VideoEncoderState(codec.Codec, maxResolution, maxFrameRate)  // planned; no write
+                        : await video.ApplyAsync(
+                            encoder.ConfigurationToken, switchTo, maxResolution, maxFrameRate, cancellationToken);
                     var requestedCodec = options.PreferredCodecs is { Count: > 0 } prefs ? prefs[0] : applied.Codec;
                     var outcome = new VideoEncoderOutcome(encoder.ConfigurationToken,
                         requestedCodec, maxResolution, maxFrameRate,
                         applied.Codec, applied.Resolution, applied.FrameRate);
                     videoOutcomes.Add(outcome);
-                    steps.Add($"video[{encoder.ConfigurationToken}]={applied.Codec} {Format(applied.Resolution)}{FrameRateSuffix(applied.FrameRate)}"
+                    steps.Add($"{(options.DryRun ? "would set " : "")}video[{encoder.ConfigurationToken}]={applied.Codec} {Format(applied.Resolution)}{FrameRateSuffix(applied.FrameRate)}"
                         + (outcome.CodecFallback ? " (codec fallback)" : "")
-                        + (outcome.ClampedByCamera ? " (camera-limited)" : ""));
+                        + (!options.DryRun && outcome.ClampedByCamera ? " (camera-limited)" : ""));
                 }
             }
             return new CameraProvisionResult(target.Address, target.Building, target.Area, true, steps, null, videoOutcomes);
