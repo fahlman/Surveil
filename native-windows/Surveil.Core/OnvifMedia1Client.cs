@@ -52,7 +52,8 @@ public sealed class OnvifMedia1Client : IOnvifVideoClient
             request = new XElement(M(operation));
         }
         var response = await SendAsync(operation, request, cancellationToken);
-        return response.Descendants().Where(x => x.Name.Namespace == M("").Namespace &&
+        var mediaNs = (XNamespace)MediaNamespace;
+        return response.Descendants().Where(x => x.Name.Namespace == mediaNs &&
             (x.Name.LocalName == "Configurations" || x.Name.LocalName == "Configuration"))
             .Select(ParseConfiguration).ToArray();
     }
