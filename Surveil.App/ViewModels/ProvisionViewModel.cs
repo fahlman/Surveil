@@ -29,10 +29,6 @@ public sealed partial class ProvisionViewModel : ObservableObject
     [ObservableProperty] private int maxConcurrency = 8;
     [ObservableProperty] private bool dryRun = true;
 
-    /// <summary>Whether the right-side Provision pane is shown. Bound two-way by the shell's
-    /// SplitView and by the Sites toolbar toggle, so both stay in sync.</summary>
-    [ObservableProperty] private bool isPaneOpen = true;
-
     [ObservableProperty] private bool isBusy;
     [ObservableProperty] private bool hasError;
     [ObservableProperty] private string statusMessage = "";
@@ -169,10 +165,6 @@ public sealed partial class ProvisionViewModel : ObservableObject
 
     [RelayCommand]
     private void Cancel() => cts?.Cancel();
-
-    /// <summary>Hide the pane (the pane header's X). The toolbar toggle brings it back.</summary>
-    [RelayCommand]
-    private void ClosePane() => IsPaneOpen = false;
 
     private BulkProvisioningService BuildService()
     {
