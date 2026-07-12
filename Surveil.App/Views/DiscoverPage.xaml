@@ -5,13 +5,15 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:muxc="using:Microsoft.UI.Xaml.Controls"
     xmlns:conv="using:Surveil.App.Converters"
-    xmlns:core="using:Surveil.Core">
+    xmlns:core="using:Surveil.Core"
+    NavigationCacheMode="Required">
 
     <Page.Resources>
         <conv:StringToBoolConverter x:Key="StringToBool" />
         <conv:ErrorToSeverityConverter x:Key="ErrorToSeverity" />
         <conv:InverseBoolConverter x:Key="InverseBool" />
         <conv:BoolToVisibilityConverter x:Key="BoolToVis" />
+        <conv:CountZeroToVisibilityConverter x:Key="CountZeroToVis" />
     </Page.Resources>
 
     <Grid Padding="24" RowSpacing="16">
@@ -89,6 +91,11 @@
                     </DataTemplate>
                 </ListView.ItemTemplate>
             </ListView>
+
+            <TextBlock Grid.Row="1" Text="No responders yet — press Discover to listen on the local subnet."
+                       HorizontalAlignment="Center" VerticalAlignment="Center" Opacity="0.55"
+                       IsHitTestVisible="False"
+                       Visibility="{Binding Results.Count, Converter={StaticResource CountZeroToVis}}" />
         </Grid>
     </Grid>
 </Page>

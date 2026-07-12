@@ -5,7 +5,9 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:muxc="using:Microsoft.UI.Xaml.Controls"
     xmlns:conv="using:Surveil.App.Converters"
-    xmlns:core="using:Surveil.Core">
+    xmlns:core="using:Surveil.Core"
+    xmlns:vm="using:Surveil.App.ViewModels"
+    NavigationCacheMode="Required">
 
     <Page.Resources>
         <conv:NullToVisibilityConverter x:Key="NullToVis" />
@@ -50,13 +52,13 @@
                     <RowDefinition Height="*" />
                     <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
-                <ListView Grid.Row="0"
+                <ListView Grid.Row="0" x:Name="BuildingsList"
                     ItemsSource="{Binding Buildings}"
                     SelectedItem="{Binding SelectedBuilding, Mode=TwoWay}"
                     BorderThickness="1" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                     CornerRadius="6">
                     <ListView.ItemTemplate>
-                        <DataTemplate x:DataType="core:Building">
+                        <DataTemplate x:DataType="vm:BuildingItem">
                             <TextBlock Text="{x:Bind Name, Mode=OneWay}" />
                         </DataTemplate>
                     </ListView.ItemTemplate>
@@ -71,7 +73,7 @@
             <ScrollViewer Grid.Column="1"
                 Visibility="{Binding SelectedBuilding, Converter={StaticResource NullToVis}}">
                 <StackPanel Spacing="12">
-                    <TextBox Header="Name" Text="{Binding SelectedBuilding.Name, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                    <TextBox x:Name="BuildingNameBox" Header="Name" Text="{Binding SelectedBuilding.Name, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
                     <TextBox Header="Notes" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="60"
                              Text="{Binding SelectedBuilding.Notes, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
 

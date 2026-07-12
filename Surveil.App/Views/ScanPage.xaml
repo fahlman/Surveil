@@ -5,7 +5,8 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:muxc="using:Microsoft.UI.Xaml.Controls"
     xmlns:conv="using:Surveil.App.Converters"
-    xmlns:core="using:Surveil.Core">
+    xmlns:core="using:Surveil.Core"
+    NavigationCacheMode="Required">
 
     <Page.Resources>
         <conv:UnixTimeToStringConverter x:Key="UnixTime" />
@@ -13,6 +14,7 @@
         <conv:ErrorToSeverityConverter x:Key="ErrorToSeverity" />
         <conv:InverseBoolConverter x:Key="InverseBool" />
         <conv:BoolToVisibilityConverter x:Key="BoolToVis" />
+        <conv:CountZeroToVisibilityConverter x:Key="CountZeroToVis" />
     </Page.Resources>
 
     <Grid Padding="24" RowSpacing="16">
@@ -27,7 +29,7 @@
 
         <TextBlock Grid.Row="0" Text="Scan" Style="{StaticResource TitleTextBlockStyle}" />
 
-        <TextBox Grid.Row="1" Header="Targets (IPs or CIDR ranges, space/comma separated)"
+        <TextBox Grid.Row="1" x:Name="TargetsBox" Header="Targets (IPs or CIDR ranges, space/comma separated)"
                  AcceptsReturn="True" TextWrapping="Wrap" MinHeight="60"
                  PlaceholderText="10.20.0.0/24  192.168.1.0/24"
                  Text="{Binding Targets, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
@@ -102,6 +104,11 @@
                     </DataTemplate>
                 </ListView.ItemTemplate>
             </ListView>
+
+            <TextBlock Grid.Row="1" Text="No results yet — enter targets and press Scan."
+                       HorizontalAlignment="Center" VerticalAlignment="Center" Opacity="0.55"
+                       IsHitTestVisible="False"
+                       Visibility="{Binding Results.Count, Converter={StaticResource CountZeroToVis}}" />
         </Grid>
     </Grid>
 </Page>

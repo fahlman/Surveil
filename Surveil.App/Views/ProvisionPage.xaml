@@ -5,7 +5,8 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:muxc="using:Microsoft.UI.Xaml.Controls"
     xmlns:conv="using:Surveil.App.Converters"
-    xmlns:vm="using:Surveil.App.ViewModels">
+    xmlns:vm="using:Surveil.App.ViewModels"
+    NavigationCacheMode="Required">
 
     <Page.Resources>
         <conv:StringToBoolConverter x:Key="StringToBool" />
@@ -14,6 +15,7 @@
         <conv:BoolToVisibilityConverter x:Key="BoolToVis" />
         <conv:BoolToBrushConverter x:Key="BoolToBrush" />
         <conv:StringToVisibilityConverter x:Key="StringToVis" />
+        <conv:CountZeroToVisibilityConverter x:Key="CountZeroToVis" />
     </Page.Resources>
 
     <Grid Padding="24" ColumnSpacing="20">
@@ -120,10 +122,16 @@
                             </DataTemplate>
                         </ListView.ItemTemplate>
                     </ListView>
+
+                    <TextBlock Grid.Row="1" Text="No plan yet — press Preview to see derived names."
+                               HorizontalAlignment="Center" VerticalAlignment="Center" Opacity="0.55"
+                               IsHitTestVisible="False"
+                               Visibility="{Binding Plans.Count, Converter={StaticResource CountZeroToVis}}" />
                 </Grid>
             </muxc:PivotItem>
 
             <muxc:PivotItem Header="Results">
+                <Grid>
                 <ListView ItemsSource="{Binding Results}"
                           BorderThickness="1" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" CornerRadius="6">
                     <ListView.ItemContainerStyle>
@@ -157,6 +165,12 @@
                         </DataTemplate>
                     </ListView.ItemTemplate>
                 </ListView>
+
+                <TextBlock Text="No results yet — Preview or Provision to populate."
+                           HorizontalAlignment="Center" VerticalAlignment="Center" Opacity="0.55"
+                           IsHitTestVisible="False"
+                           Visibility="{Binding Results.Count, Converter={StaticResource CountZeroToVis}}" />
+                </Grid>
             </muxc:PivotItem>
         </muxc:Pivot>
     </Grid>
