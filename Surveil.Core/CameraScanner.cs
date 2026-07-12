@@ -42,7 +42,8 @@ public sealed class CameraScanner : ICameraScanner
                     if (connected) found.Add(address);
                     foundCount = found.Count;
                 }
-                if (connected || scanned % 256 == 0 || scanned == addresses.Count)
+                // Report often enough that the progress bar moves smoothly, plus on every hit and at the end.
+                if (connected || scanned % 32 == 0 || scanned == addresses.Count)
                     progress?.Report(new ScanProgress(scanned, addresses.Count, foundCount));
             }
             finally

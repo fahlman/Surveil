@@ -44,10 +44,17 @@
                     Visibility="{Binding IsBusy, Converter={StaticResource BoolToVis}}" />
         </StackPanel>
 
-        <muxc:InfoBar Grid.Row="2"
-            IsOpen="{Binding StatusMessage, Converter={StaticResource StringToBool}}"
-            Severity="{Binding HasError, Converter={StaticResource ErrorToSeverity}}"
-            Message="{Binding StatusMessage}" IsClosable="True" />
+        <StackPanel Grid.Row="2" Spacing="8">
+            <!-- Determinate while scanning (fills as addresses are probed); animated while discovering. -->
+            <muxc:ProgressBar
+                Value="{Binding ScanProgressValue}" Maximum="{Binding ScanProgressMaximum}"
+                IsIndeterminate="{Binding IsDiscovering}"
+                Visibility="{Binding IsBusy, Converter={StaticResource BoolToVis}}" />
+            <muxc:InfoBar
+                IsOpen="{Binding StatusMessage, Converter={StaticResource StringToBool}}"
+                Severity="{Binding HasError, Converter={StaticResource ErrorToSeverity}}"
+                Message="{Binding StatusMessage}" IsClosable="True" />
+        </StackPanel>
 
         <ScrollViewer Grid.Row="3">
             <StackPanel>
