@@ -267,6 +267,26 @@ public sealed class CoreTests
     }
 
     [Fact]
+    public async Task LoadsLegacyBuildingsFileAsSites()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"surveil-legacy-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            // Current object-ranges shape saved under the old filename — must load + migrate to sites.
+            await File.WriteAllTextAsync(Path.Combine(directory, JsonStore.LegacyConfigFileName),
+                "{\"buildings\":[{\"name\":\"Hall\",\"ranges\":[{\"name\":\"Main\",\"cidr\":\"10.20.0.0/24\"}],\"notes\":\"\"}]}");
+            var config = await new JsonStore(directory).LoadConfigAsync();
+            Assert.Equal("Hall", config.Sites.Single().Name);
+            Assert.Equal("10.20.0.0/24", config.Sites.Single().Ranges.Single().Cidr);
+        }
+        finally
+        {
+            Directory.Delete(directory, true);
+        }
+    }
+
+    [Fact]
     public async Task ApplicationServiceOrchestratesScanAndDiscovery()
     {
         var directory = Path.Combine(Path.GetTempPath(), $"surveil-service-{Guid.NewGuid():N}");
