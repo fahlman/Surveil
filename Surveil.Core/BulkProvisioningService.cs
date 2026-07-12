@@ -35,6 +35,13 @@ public sealed record BulkProvisionOptions
     /// that resolution, the highest frame rate the camera accepts (resolution-first). Requires a
     /// video factory.</summary>
     public bool MaximizeVideo { get; init; }
+    /// <summary>Ordered codec preference (e.g. ["H265", "H264"]). The first codec a camera supports
+    /// wins, and resolution/frame rate are maximized within it. Null or empty leaves each encoder's
+    /// codec unchanged. Cameras that cannot switch codec (legacy Media1) keep their current one.</summary>
+    public IReadOnlyList<string>? PreferredCodecs { get; init; }
+    /// <summary>Preview mode: read each camera's capabilities and report exactly what would be
+    /// applied, but perform no writes. Capability reads still occur; nothing on the camera changes.</summary>
+    public bool DryRun { get; init; }
 }
 
 /// <summary>A single camera's configuration surface, abstracted so the batch orchestration is
@@ -48,23 +55,32 @@ public interface IProvisionableDevice : IDisposable
     Task SetNtpAsync(string? posixTimeZone, CancellationToken cancellationToken);
 }
 
-/// <summary>One video encoder on a camera: its token, current state, and what it supports.</summary>
-public sealed record VideoEncoderInfo(
-    string ConfigurationToken,
-    OnvifResolution CurrentResolution, float? CurrentFrameRate,
-    IReadOnlyList<OnvifResolution> SupportedResolutions, IReadOnlyList<float> SupportedFrameRates);
+/// <summary>What one codec supports on an encoder: the resolutions and frame rates available when
+/// the encoder is set to this codec.</summary>
+public sealed record CodecCapability(
+    string Codec, IReadOnlyList<OnvifResolution> Resolutions, IReadOnlyList<float> FrameRates);
 
-/// <summary>An encoder's resolution and frame rate at a point in time.</summary>
-public sealed record VideoEncoderState(OnvifResolution Resolution, float? FrameRate);
+/// <summary>One video encoder on a camera: its token, current state, whether its codec can be
+/// switched (false for legacy Media1), and its per-codec capabilities.</summary>
+public sealed record VideoEncoderInfo(
+    string ConfigurationToken, bool CanSwitchCodec,
+    string CurrentCodec, OnvifResolution CurrentResolution, float? CurrentFrameRate,
+    IReadOnlyList<CodecCapability> Codecs);
+
+/// <summary>An encoder's codec, resolution, and frame rate at a point in time.</summary>
+public sealed record VideoEncoderState(string Codec, OnvifResolution Resolution, float? FrameRate);
 
 /// <summary>What actually happened to one encoder, for truthful UI display: what was requested, and
-/// what the camera reported after the write. <see cref="ClampedByCamera"/> is true when the device
-/// could not honor the requested combination (e.g. asked 4K@30, applied 4K@15).</summary>
+/// what the camera reported after the write. The flags mark where the device could not honor the
+/// request — a codec fallback (asked H.265, got H.264) or a clamped combo (asked 4K@30, got 4K@15).</summary>
 public sealed record VideoEncoderOutcome(
     string ConfigurationToken,
-    OnvifResolution RequestedResolution, float? RequestedFrameRate,
-    OnvifResolution AppliedResolution, float? AppliedFrameRate)
+    string RequestedCodec, OnvifResolution RequestedResolution, float? RequestedFrameRate,
+    string AppliedCodec, OnvifResolution AppliedResolution, float? AppliedFrameRate)
 {
+    public bool CodecFallback =>
+        BulkProvisioningService.NormalizeCodec(RequestedCodec) != BulkProvisioningService.NormalizeCodec(AppliedCodec);
+
     public bool ClampedByCamera =>
         AppliedResolution != RequestedResolution ||
         (RequestedFrameRate is { } requested && AppliedFrameRate is { } applied && applied < requested);
@@ -75,9 +91,9 @@ public sealed record VideoEncoderOutcome(
 public interface IProvisionableVideo : IDisposable
 {
     Task<IReadOnlyList<VideoEncoderInfo>> GetEncodersAsync(CancellationToken cancellationToken);
-    /// <summary>Apply resolution + frame rate, then read the encoder back and return what the camera
-    /// actually settled on (which may differ if the requested combination was not achievable).</summary>
-    Task<VideoEncoderState> ApplyAsync(string configurationToken, OnvifResolution resolution,
+    /// <summary>Apply codec (null = leave unchanged) + resolution + frame rate, then read the encoder
+    /// back and return what the camera actually settled on.</summary>
+    Task<VideoEncoderState> ApplyAsync(string configurationToken, string? codec, OnvifResolution resolution,
         float? frameRate, CancellationToken cancellationToken);
 }
 
@@ -179,21 +195,31 @@ public sealed class BulkProvisioningService
         {
             if (options.SetName || options.SetHostname || options.SetNtp)
             {
-                using var device = deviceFactory(target.DeviceEndpoint);
-                if (options.SetName)
+                if (options.DryRun)
                 {
-                    await device.SetNameAsync(plan.Name, cancellationToken);
-                    steps.Add($"name={plan.Name}");
+                    if (options.SetName) steps.Add($"would set name={plan.Name}");
+                    if (options.SetHostname && plan.Hostname is not null) steps.Add($"would set hostname={plan.Hostname}");
+                    if (options.SetNtp) steps.Add(options.NtpPosixTimeZone is null
+                        ? "would set ntp=computer-zone" : $"would set ntp={options.NtpPosixTimeZone}");
                 }
-                if (options.SetHostname && plan.Hostname is not null)
+                else
                 {
-                    var reboot = await device.SetHostnameAsync(plan.Hostname, cancellationToken);
-                    steps.Add(reboot ? $"hostname={plan.Hostname} (reboot required)" : $"hostname={plan.Hostname}");
-                }
-                if (options.SetNtp)
-                {
-                    await device.SetNtpAsync(options.NtpPosixTimeZone, cancellationToken);
-                    steps.Add(options.NtpPosixTimeZone is null ? "ntp=computer-zone" : $"ntp={options.NtpPosixTimeZone}");
+                    using var device = deviceFactory(target.DeviceEndpoint);
+                    if (options.SetName)
+                    {
+                        await device.SetNameAsync(plan.Name, cancellationToken);
+                        steps.Add($"name={plan.Name}");
+                    }
+                    if (options.SetHostname && plan.Hostname is not null)
+                    {
+                        var reboot = await device.SetHostnameAsync(plan.Hostname, cancellationToken);
+                        steps.Add(reboot ? $"hostname={plan.Hostname} (reboot required)" : $"hostname={plan.Hostname}");
+                    }
+                    if (options.SetNtp)
+                    {
+                        await device.SetNtpAsync(options.NtpPosixTimeZone, cancellationToken);
+                        steps.Add(options.NtpPosixTimeZone is null ? "ntp=computer-zone" : $"ntp={options.NtpPosixTimeZone}");
+                    }
                 }
             }
             if (options.MaximizeVideo && videoFactory is not null)
@@ -201,17 +227,24 @@ public sealed class BulkProvisioningService
                 using var video = videoFactory(target.DeviceEndpoint);
                 foreach (var encoder in await video.GetEncodersAsync(cancellationToken))
                 {
-                    if (encoder.SupportedResolutions.Count == 0) continue;
-                    var maxResolution = encoder.SupportedResolutions.OrderByDescending(Area).First();
-                    float? maxFrameRate = encoder.SupportedFrameRates.Count > 0
-                        ? encoder.SupportedFrameRates.Max() : null;
-                    var applied = await video.ApplyAsync(
-                        encoder.ConfigurationToken, maxResolution, maxFrameRate, cancellationToken);
+                    var codec = ChooseCodec(encoder, options.PreferredCodecs);
+                    if (codec is null || codec.Resolutions.Count == 0) continue;
+                    var maxResolution = codec.Resolutions.OrderByDescending(Area).First();
+                    float? maxFrameRate = codec.FrameRates.Count > 0 ? codec.FrameRates.Max() : null;
+                    // Only pass a codec to switch to when it actually differs from the current one.
+                    var switchTo = NormalizeCodec(codec.Codec) == NormalizeCodec(encoder.CurrentCodec) ? null : codec.Codec;
+                    var applied = options.DryRun
+                        ? new VideoEncoderState(codec.Codec, maxResolution, maxFrameRate)  // planned; no write
+                        : await video.ApplyAsync(
+                            encoder.ConfigurationToken, switchTo, maxResolution, maxFrameRate, cancellationToken);
+                    var requestedCodec = options.PreferredCodecs is { Count: > 0 } prefs ? prefs[0] : applied.Codec;
                     var outcome = new VideoEncoderOutcome(encoder.ConfigurationToken,
-                        maxResolution, maxFrameRate, applied.Resolution, applied.FrameRate);
+                        requestedCodec, maxResolution, maxFrameRate,
+                        applied.Codec, applied.Resolution, applied.FrameRate);
                     videoOutcomes.Add(outcome);
-                    steps.Add($"video[{encoder.ConfigurationToken}]={Format(applied.Resolution)}{FrameRateSuffix(applied.FrameRate)}"
-                        + (outcome.ClampedByCamera ? " (camera-limited)" : ""));
+                    steps.Add($"{(options.DryRun ? "would set " : "")}video[{encoder.ConfigurationToken}]={applied.Codec} {Format(applied.Resolution)}{FrameRateSuffix(applied.FrameRate)}"
+                        + (outcome.CodecFallback ? " (codec fallback)" : "")
+                        + (!options.DryRun && outcome.ClampedByCamera ? " (camera-limited)" : ""));
                 }
             }
             return new CameraProvisionResult(target.Address, target.Building, target.Area, true, steps, null, videoOutcomes);
@@ -250,6 +283,27 @@ public sealed class BulkProvisioningService
         slug = slug.Trim('-');
         return slug.Length > 63 ? slug[..63].Trim('-') : slug;
     }
+
+    /// <summary>Pick the codec to configure: the first preferred codec the camera supports (only when
+    /// it can switch), otherwise its current codec. Null when the encoder reports no codecs at all.</summary>
+    private static CodecCapability? ChooseCodec(VideoEncoderInfo encoder, IReadOnlyList<string>? preferred)
+    {
+        if (encoder.Codecs.Count == 0) return null;
+        if (encoder.CanSwitchCodec && preferred is { Count: > 0 })
+            foreach (var want in preferred)
+            {
+                var match = encoder.Codecs.FirstOrDefault(c => NormalizeCodec(c.Codec) == NormalizeCodec(want));
+                if (match is not null) return match;
+            }
+        return encoder.Codecs.FirstOrDefault(c => NormalizeCodec(c.Codec) == NormalizeCodec(encoder.CurrentCodec))
+            ?? encoder.Codecs[0];
+    }
+
+    /// <summary>Compare codec names loosely: "video/H265", "H.265", "h265" all match.</summary>
+    internal static string NormalizeCodec(string codec) => codec
+        .Replace("video/", "", StringComparison.OrdinalIgnoreCase)
+        .Replace(".", "", StringComparison.Ordinal)
+        .ToUpperInvariant();
 
     private static long Area(OnvifResolution resolution) => (long)resolution.Width * resolution.Height;
     private static string Format(OnvifResolution resolution) => $"{resolution.Width}x{resolution.Height}";
@@ -308,27 +362,30 @@ internal sealed class OnvifVideoProvisioner : IProvisionableVideo
     public async Task<IReadOnlyList<VideoEncoderInfo>> GetEncodersAsync(CancellationToken cancellationToken)
     {
         connection ??= await connector.ConnectAsync(deviceEndpoint, null, cancellationToken);
+        var canSwitchCodec = connection.Video.Generation == OnvifMediaGeneration.Media2;
         var encoders = new List<VideoEncoderInfo>();
         foreach (var config in await connection.Video.GetVideoEncoderConfigurationsAsync(cancellationToken: cancellationToken))
         {
             var options = await connection.Video.GetVideoEncoderConfigurationOptionsAsync(
                 config.Token, cancellationToken: cancellationToken);
-            var resolutions = options.SelectMany(option => option.Resolutions).Distinct().ToArray();
-            var frameRates = options.SelectMany(option => option.FrameRates).Distinct().ToArray();
+            var codecs = options
+                .Select(option => new CodecCapability(option.Encoding,
+                    option.Resolutions.Distinct().ToArray(), option.FrameRates.Distinct().ToArray()))
+                .ToArray();
             encoders.Add(new VideoEncoderInfo(
-                config.Token, config.Resolution, config.FrameRateLimit, resolutions, frameRates));
+                config.Token, canSwitchCodec, config.Encoding, config.Resolution, config.FrameRateLimit, codecs));
         }
         return encoders;
     }
 
-    public async Task<VideoEncoderState> ApplyAsync(string configurationToken, OnvifResolution resolution,
-        float? frameRate, CancellationToken cancellationToken)
+    public async Task<VideoEncoderState> ApplyAsync(string configurationToken, string? codec,
+        OnvifResolution resolution, float? frameRate, CancellationToken cancellationToken)
     {
         await connection!.Video.UpdateVideoEncoderAsync(configurationToken, resolution.Width, resolution.Height,
-            framesPerSecond: frameRate, cancellationToken: cancellationToken);
+            framesPerSecond: frameRate, encoding: codec, cancellationToken: cancellationToken);
         var applied = (await connection.Video.GetVideoEncoderConfigurationsAsync(
             configurationToken, cancellationToken: cancellationToken)).Single();
-        return new VideoEncoderState(applied.Resolution, applied.FrameRateLimit);
+        return new VideoEncoderState(applied.Encoding, applied.Resolution, applied.FrameRateLimit);
     }
 
     public void Dispose() => connection?.Dispose();
