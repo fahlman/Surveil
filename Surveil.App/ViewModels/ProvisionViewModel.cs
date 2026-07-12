@@ -65,6 +65,7 @@ public sealed partial class ProvisionViewModel : ObservableObject
         {
             HasError = true;
             StatusMessage = ex.Message;
+            AppLog.Write(ex);
         }
     }
 
@@ -86,6 +87,7 @@ public sealed partial class ProvisionViewModel : ObservableObject
         {
             HasError = true;
             StatusMessage = ex.Message;
+            AppLog.Write(ex);
             return;
         }
 
@@ -93,6 +95,15 @@ public sealed partial class ProvisionViewModel : ObservableObject
         {
             HasError = true;
             StatusMessage = "No targets. Enter addresses and confirm the building map.";
+            return;
+        }
+
+        // Contacting cameras (any real write, or a dry run that reads video capabilities) needs a
+        // username. A pure identity dry run never touches a camera, so credentials aren't required.
+        if ((!DryRun || MaximizeVideo) && string.IsNullOrWhiteSpace(Username))
+        {
+            HasError = true;
+            StatusMessage = "Enter the ONVIF username (needed to contact cameras).";
             return;
         }
 
@@ -139,6 +150,7 @@ public sealed partial class ProvisionViewModel : ObservableObject
         {
             HasError = true;
             StatusMessage = ex.Message;
+            AppLog.Write(ex);
         }
         finally
         {

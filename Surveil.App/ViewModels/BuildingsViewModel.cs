@@ -87,6 +87,7 @@ public sealed partial class BuildingsViewModel : ObservableObject
         {
             HasError = true;
             StatusMessage = ex.Message;
+            AppLog.Write(ex);
         }
     }
 
@@ -105,6 +106,7 @@ public sealed partial class BuildingsViewModel : ObservableObject
         {
             HasError = true;
             StatusMessage = ex.Message;
+            AppLog.Write(ex);
         }
     }
 
@@ -124,6 +126,7 @@ public sealed partial class BuildingsViewModel : ObservableObject
         {
             HasError = true;
             StatusMessage = ex.Message;
+            AppLog.Write(ex);
         }
     }
 
