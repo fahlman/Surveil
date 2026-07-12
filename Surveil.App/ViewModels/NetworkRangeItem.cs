@@ -46,8 +46,12 @@ public sealed partial class NetworkRangeItem : ObservableObject
     [RelayCommand]
     private void Remove()
     {
-        Parent?.Children.Remove(this);
-        Parent?.RefreshSelection();
+        var parent = Parent;
+        if (parent is null) return;
+        parent.Children.Remove(this);
+        // A site always keeps at least one range — recreate an empty one.
+        if (parent.Children.Count == 0) parent.Children.Add(new NetworkRangeItem(parent));
+        parent.RefreshSelection();
     }
 
     [RelayCommand]
