@@ -25,7 +25,6 @@ public sealed partial class ProvisionViewModel : ObservableObject
     [ObservableProperty] private bool maximizeVideo;
     [ObservableProperty] private string preferredCodecs = "H265, H264";
     [ObservableProperty] private string ntpPosixTimeZone = "";
-    [ObservableProperty] private bool skipUnknownLocation = true;
     [ObservableProperty] private int maxConcurrency = 8;
     [ObservableProperty] private bool dryRun = true;
 
@@ -78,7 +77,7 @@ public sealed partial class ProvisionViewModel : ObservableObject
         {
             var service = BuildService();
             var provisionTargets = service.TargetsFromAddresses(ExpandTargets());
-            var plans = service.Plan(provisionTargets, includeUnknownLocation: !SkipUnknownLocation);
+            var plans = service.Plan(provisionTargets, includeUnknownLocation: true);
             foreach (var plan in plans) Plans.Add(new ProvisionPlanRow(plan));
             StatusMessage = plans.Count == 0
                 ? "No targets. Check the addresses and the site map."
@@ -144,7 +143,7 @@ public sealed partial class ProvisionViewModel : ObservableObject
             NtpPosixTimeZone = string.IsNullOrWhiteSpace(NtpPosixTimeZone) ? null : NtpPosixTimeZone.Trim(),
             MaximizeVideo = MaximizeVideo,
             PreferredCodecs = ParseCodecs(PreferredCodecs),
-            SkipUnknownLocation = SkipUnknownLocation,
+            SkipUnknownLocation = false,  // selection is explicit — provision exactly what's ticked
             MaxConcurrency = Math.Max(1, MaxConcurrency),
             DryRun = DryRun,
         };
