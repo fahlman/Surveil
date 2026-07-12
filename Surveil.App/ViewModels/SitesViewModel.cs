@@ -6,10 +6,10 @@ using Surveil.Core;
 
 namespace Surveil.App.ViewModels;
 
-/// <summary>The building map as a hierarchical editor: buildings (parents) each hold their CIDR
+/// <summary>The site map as a hierarchical editor: sites (parents) each hold their CIDR
 /// ranges (children). Per-node edit/delete/add live on the nodes themselves; this view model owns
 /// the root list plus save / import / export.</summary>
-public sealed partial class BuildingsViewModel : ObservableObject
+public sealed partial class SitesViewModel : ObservableObject
 {
     private readonly AppSession session = AppSession.Current;
 
@@ -26,14 +26,14 @@ public sealed partial class BuildingsViewModel : ObservableObject
 
     private CancellationTokenSource? busyCts;
 
-    public ObservableCollection<BuildingItem> Buildings { get; } = new();
+    public ObservableCollection<SiteItem> Sites { get; } = new();
 
     /// <summary>Cameras found (by discovery) that fall outside every mapped CIDR.</summary>
     public ObservableCollection<CameraStatus> UnmappedCameras { get; } = new();
 
     public string DataDirectory => session.DataDirectory;
 
-    public BuildingsViewModel()
+    public SitesViewModel()
     {
         Load();
         _ = LoadInventoryAsync();
@@ -41,11 +41,11 @@ public sealed partial class BuildingsViewModel : ObservableObject
 
     public void Load()
     {
-        Buildings.Clear();
-        foreach (var building in session.Config.Buildings)
-            Buildings.Add(new BuildingItem(building, Buildings));
-        // There is always at least one building — a fresh/empty map starts with an empty one.
-        if (Buildings.Count == 0) Buildings.Add(new BuildingItem("Building 1", Buildings));
+        Sites.Clear();
+        foreach (var site in session.Config.Sites)
+            Sites.Add(new SiteItem(site, Sites));
+        // There is always at least one site — a fresh/empty map starts with an empty one.
+        if (Sites.Count == 0) Sites.Add(new SiteItem("Site 1", Sites));
     }
 
     /// <summary>Populate the tree from the saved inventory (cameras.json): each known camera under
@@ -55,7 +55,7 @@ public sealed partial class BuildingsViewModel : ObservableObject
         try
         {
             var inventory = await session.Store.LoadInventoryAsync();
-            foreach (var range in Buildings.SelectMany(b => b.Children)) range.Cameras.Clear();
+            foreach (var range in Sites.SelectMany(b => b.Children)) range.Cameras.Clear();
             UnmappedCameras.Clear();
 
             var sets = RangeAddressSets();
@@ -63,7 +63,7 @@ public sealed partial class BuildingsViewModel : ObservableObject
             {
                 var camera = new CameraStatus
                 {
-                    Ip = record.Ip, Building = record.Building, Area = record.Area,
+                    Ip = record.Ip, Site = record.Site, Area = record.Area,
                     FirstSeen = record.FirstSeen, LastSeen = record.LastSeen,
                 };
                 var range = sets.FirstOrDefault(kv => kv.Value.Contains(record.Ip)).Key;
@@ -87,7 +87,7 @@ public sealed partial class BuildingsViewModel : ObservableObject
             await session.Service.SaveConfigAsync(config);
             session.Config = config;
             HasError = false;
-            StatusMessage = $"Saved {config.Buildings.Count} buildings to {session.DataDirectory}.";
+            StatusMessage = $"Saved {config.Sites.Count} sites to {session.DataDirectory}.";
         }
         catch (Exception ex)
         {
@@ -107,7 +107,7 @@ public sealed partial class BuildingsViewModel : ObservableObject
             Load();
             await LoadInventoryAsync();
             HasError = false;
-            StatusMessage = $"Imported {config.Buildings.Count} buildings from {path}.";
+            StatusMessage = $"Imported {config.Sites.Count} sites from {path}.";
         }
         catch (Exception ex)
         {
@@ -142,7 +142,7 @@ public sealed partial class BuildingsViewModel : ObservableObject
     {
         if (IsBusy) return;
 
-        var selected = Buildings.SelectMany(b => b.Children)
+        var selected = Sites.SelectMany(b => b.Children)
             .Where(r => r.IsSelected && !string.IsNullOrWhiteSpace(r.Cidr))
             .ToList();
         if (selected.Count == 0)
@@ -248,7 +248,7 @@ public sealed partial class BuildingsViewModel : ObservableObject
             {
                 var status = new CameraStatus
                 {
-                    Ip = camera.Ip, Building = camera.Building, Area = camera.Area, Status = "discovered",
+                    Ip = camera.Ip, Site = camera.Site, Area = camera.Area, Status = "discovered",
                 };
                 var range = sets.FirstOrDefault(kv => kv.Value.Contains(camera.Ip)).Key;
                 if (range is not null)
@@ -292,7 +292,7 @@ public sealed partial class BuildingsViewModel : ObservableObject
     private Dictionary<NetworkRangeItem, HashSet<string>> RangeAddressSets()
     {
         var sets = new Dictionary<NetworkRangeItem, HashSet<string>>();
-        foreach (var range in Buildings.SelectMany(b => b.Children)
+        foreach (var range in Sites.SelectMany(b => b.Children)
                      .Where(r => !string.IsNullOrWhiteSpace(r.Cidr)))
         {
             try
@@ -314,5 +314,5 @@ public sealed partial class BuildingsViewModel : ObservableObject
     }
 
     private SurveilConfig ToConfig() =>
-        new() { Buildings = Buildings.Select(building => building.ToBuilding()).ToList() };
+        new() { Sites = Sites.Select(site => site.ToSite()).ToList() };
 }

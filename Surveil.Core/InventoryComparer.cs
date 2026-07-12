@@ -17,7 +17,7 @@ public static class InventoryComparer
             foundIps.Add(camera.Ip);
             var exists = prior.TryGetValue(camera.Ip, out var old);
             var record = new CameraRecord {
-                Ip = camera.Ip, Building = camera.Building, Area = camera.Area,
+                Ip = camera.Ip, Site = camera.Site, Area = camera.Area,
                 FirstSeen = exists ? old!.FirstSeen : now, LastSeen = now
             };
             records.Add(record);
@@ -36,7 +36,7 @@ public static class InventoryComparer
     }
 
     private static CameraStatus Status(CameraRecord record, string status) => new() {
-        Ip = record.Ip, Building = record.Building, Area = record.Area,
+        Ip = record.Ip, Site = record.Site, Area = record.Area,
         FirstSeen = record.FirstSeen, LastSeen = record.LastSeen, Status = status
     };
 

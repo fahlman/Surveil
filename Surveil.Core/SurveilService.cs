@@ -2,8 +2,8 @@ using System.Net;
 
 namespace Surveil.Core;
 
-public sealed record DiscoveryCamera(string Ip, string Building, string Area, string XAddresses);
-public sealed record DiscoveryResult(IReadOnlyList<DiscoveryCamera> Cameras, int DistinctSubnets, int DistinctBuildings);
+public sealed record DiscoveryCamera(string Ip, string Site, string Area, string XAddresses);
+public sealed record DiscoveryResult(IReadOnlyList<DiscoveryCamera> Cameras, int DistinctSubnets, int DistinctSites);
 
 public sealed class SurveilService
 {
@@ -41,7 +41,7 @@ public sealed class SurveilService
         var now = (ulong)DateTimeOffset.UtcNow.ToUnixTimeSeconds();
         var found = foundAddresses.Select(address => {
             var location = NetworkRanges.Locate(config, address);
-            return new FoundCamera { Ip = address.ToString(), Building = location?.Building ?? "", Area = location?.Area ?? "" };
+            return new FoundCamera { Ip = address.ToString(), Site = location?.Site ?? "", Area = location?.Area ?? "" };
         });
         var previous = await store.LoadInventoryAsync(cancellationToken);
         var (inventory, statuses) = InventoryComparer.Diff(previous, found, scanned, now);
@@ -56,12 +56,12 @@ public sealed class SurveilService
         var responders = await discovery.DiscoverAsync(timeout, cancellationToken);
         var cameras = responders.Select(responder => {
             var location = NetworkRanges.Locate(config, responder.Ip);
-            return new DiscoveryCamera(responder.Ip.ToString(), location?.Building ?? "",
+            return new DiscoveryCamera(responder.Ip.ToString(), location?.Site ?? "",
                 location?.Area ?? "", responder.XAddresses);
         }).ToArray();
         var subnets = responders.Select(item => string.Join(".", item.Ip.GetAddressBytes().Take(3))).Distinct().Count();
-        var buildings = cameras.Select(item => item.Building).Where(name => name.Length > 0).Distinct().Count();
-        return new DiscoveryResult(cameras, subnets, buildings);
+        var sites = cameras.Select(item => item.Site).Where(name => name.Length > 0).Distinct().Count();
+        return new DiscoveryResult(cameras, subnets, sites);
     }
 
     public Task<OnvifCameraConnection> ConnectCameraAsync(Uri deviceEndpoint, string username, string password,

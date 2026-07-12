@@ -8,7 +8,7 @@ namespace Surveil.Core.Tests;
 public sealed class BulkProvisioningTests
 {
     [Fact]
-    public async Task DerivesIdentityFromBuildingMapThenAppliesAndVerifies()
+    public async Task DerivesIdentityFromSiteMapThenAppliesAndVerifies()
     {
         var config = Config("Example Hall", "Second Floor", "10.200.62.0/24");
         var devices = new ConcurrentDictionary<string, RecordingDevice>();
@@ -22,7 +22,7 @@ public sealed class BulkProvisioningTests
 
         var result = Assert.Single(await service.ProvisionAsync(targets));
         Assert.True(result.Success);
-        Assert.Equal("Example Hall", result.Building);
+        Assert.Equal("Example Hall", result.Site);
         Assert.Equal(
             ["name=Example Hall Second Floor", "hostname=example-hall-second-floor-137", "ntp=computer-zone"],
             result.Steps);
@@ -55,7 +55,7 @@ public sealed class BulkProvisioningTests
     }
 
     [Fact]
-    public async Task SkipsCamerasOutsideTheBuildingMapByDefault()
+    public async Task SkipsCamerasOutsideTheSiteMapByDefault()
     {
         var config = Config("Hall", "Main", "10.200.62.0/24");
         var service = new BulkProvisioningService(config, _ => new RecordingDevice());
@@ -263,7 +263,7 @@ public sealed class BulkProvisioningTests
     }
 
     private static SurveilConfig Config(string building, string area, string cidr) =>
-        new() { Buildings = [new Building { Name = building, Ranges = [new NetworkRange { Name = area, Cidr = cidr }] }] };
+        new() { Sites = [new Site { Name = building, Ranges = [new NetworkRange { Name = area, Cidr = cidr }] }] };
 
     private sealed class FakeVideo : IProvisionableVideo
     {

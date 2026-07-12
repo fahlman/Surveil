@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Page
-    x:Class="Surveil.App.Views.BuildingsPage"
+    x:Class="Surveil.App.Views.SitesPage"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:muxc="using:Microsoft.UI.Xaml.Controls"
@@ -27,7 +27,7 @@
         </Grid.RowDefinitions>
 
         <StackPanel Grid.Row="0" Spacing="4">
-            <TextBlock Text="Building map" Style="{StaticResource TitleTextBlockStyle}" />
+            <TextBlock Text="Sites" Style="{StaticResource TitleTextBlockStyle}" />
             <TextBlock Text="{Binding DataDirectory}" Opacity="0.7" Style="{StaticResource CaptionTextBlockStyle}" />
         </StackPanel>
 
@@ -55,12 +55,12 @@
 
         <ScrollViewer Grid.Row="3">
             <StackPanel>
-            <ItemsControl ItemsSource="{Binding Buildings}">
+            <ItemsControl ItemsSource="{Binding Sites}">
                 <ItemsControl.ItemTemplate>
-                    <DataTemplate x:DataType="vm:BuildingItem">
+                    <DataTemplate x:DataType="vm:SiteItem">
                         <StackPanel Margin="0,0,0,6">
 
-                            <!-- Building (parent) row -->
+                            <!-- Site (parent) row -->
                             <Grid ColumnSpacing="4" Padding="6,4" CornerRadius="6"
                                   Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
                                   BorderThickness="1" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}">
@@ -75,7 +75,7 @@
 
                                 <CheckBox Grid.Column="0" MinWidth="0" VerticalAlignment="Center"
                                           IsChecked="{Binding IsSelected, Mode=TwoWay}"
-                                          ToolTipService.ToolTip="Select all CIDRs in this building" />
+                                          ToolTipService.ToolTip="Select all CIDRs in this site" />
 
                                 <Button Grid.Column="1" Command="{x:Bind ToggleExpandCommand}"
                                         Background="Transparent" BorderThickness="0" Padding="6,4"
@@ -103,10 +103,10 @@
                                                   Visibility="{x:Bind IsEditing, Mode=OneWay, Converter={StaticResource BoolToVis}, ConverterParameter=invert}" ToolTipService.ToolTip="Edit name" />
                                     </Grid>
                                 </Button>
-                                <Button Grid.Column="4" Command="{x:Bind RemoveCommand}" ToolTipService.ToolTip="Delete building">
+                                <Button Grid.Column="4" Command="{x:Bind RemoveCommand}" ToolTipService.ToolTip="Delete site">
                                     <FontIcon Glyph="&#xE74D;" FontFamily="Segoe MDL2 Assets" FontSize="14" />
                                 </Button>
-                                <Button Grid.Column="5" Command="{x:Bind AddBuildingCommand}" ToolTipService.ToolTip="Add building">
+                                <Button Grid.Column="5" Command="{x:Bind AddSiteCommand}" ToolTipService.ToolTip="Add site">
                                     <FontIcon Glyph="&#xE710;" FontFamily="Segoe MDL2 Assets" FontSize="14" />
                                 </Button>
                             </Grid>

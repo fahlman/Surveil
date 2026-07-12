@@ -4,17 +4,17 @@ public static class ConfigValidator
 {
     public static void Validate(SurveilConfig config)
     {
-        var buildingNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var siteNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var parsedRanges = new List<(string Label, ParsedRange Range)>();
 
-        foreach (var building in config.Buildings)
+        foreach (var site in config.Sites)
         {
-            var name = building.Name.Trim();
-            if (name.Length == 0) throw new InvalidOperationException("every building needs a name");
-            if (!buildingNames.Add(name)) throw new InvalidOperationException($"duplicate building name: {name}");
+            var name = site.Name.Trim();
+            if (name.Length == 0) throw new InvalidOperationException("every site needs a name");
+            if (!siteNames.Add(name)) throw new InvalidOperationException($"duplicate site name: {name}");
             var areaNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-            foreach (var networkRange in building.Ranges)
+            foreach (var networkRange in site.Ranges)
             {
                 var area = networkRange.Name.Trim();
                 if (area.Length == 0) throw new InvalidOperationException($"every range in {name} needs a name");

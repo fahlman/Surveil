@@ -7,7 +7,7 @@ using Surveil.Core;
 
 namespace Surveil.App.ViewModels;
 
-/// <summary>Bulk-provisions cameras: derives name/hostname from the building map, optionally
+/// <summary>Bulk-provisions cameras: derives name/hostname from the site map, optionally
 /// maximizes video (codec preference, resolution-first), and reports a truthful per-camera
 /// outcome. Supports a dry-run that reads capabilities but writes nothing.</summary>
 public sealed partial class ProvisionViewModel : ObservableObject
@@ -60,7 +60,7 @@ public sealed partial class ProvisionViewModel : ObservableObject
             var plans = service.Plan(provisionTargets, includeUnknownLocation: !SkipUnknownLocation);
             foreach (var plan in plans) Plans.Add(new ProvisionPlanRow(plan));
             StatusMessage = plans.Count == 0
-                ? "No targets. Check the addresses and the building map."
+                ? "No targets. Check the addresses and the site map."
                 : $"{plans.Count} cameras planned.";
         }
         catch (Exception ex)
@@ -96,7 +96,7 @@ public sealed partial class ProvisionViewModel : ObservableObject
         if (provisionTargets.Count == 0)
         {
             HasError = true;
-            StatusMessage = "No targets. Enter addresses and confirm the building map.";
+            StatusMessage = "No targets. Enter addresses and confirm the site map.";
             return;
         }
 
@@ -199,15 +199,15 @@ public sealed class ProvisionPlanRow
     public ProvisionPlanRow(CameraProvisionPlan plan)
     {
         Address = plan.Target.Address.ToString();
-        Location = Join(plan.Target.Building, plan.Target.Area);
+        Location = Join(plan.Target.Site, plan.Target.Area);
         Name = plan.Name;
         Hostname = plan.Hostname ?? "—";
         LocationKnown = plan.Target.LocationKnown;
     }
 
-    private static string Join(string building, string area)
+    private static string Join(string site, string area)
     {
-        var parts = new[] { building, area }.Where(p => p.Length > 0);
+        var parts = new[] { site, area }.Where(p => p.Length > 0);
         var joined = string.Join(" · ", parts);
         return joined.Length == 0 ? "(unknown)" : joined;
     }
@@ -229,16 +229,16 @@ public sealed class ProvisionResultRow
     public ProvisionResultRow(CameraProvisionResult result)
     {
         Address = result.Address.ToString();
-        Location = ProvisionPlanRowLocation(result.Building, result.Area);
+        Location = ProvisionPlanRowLocation(result.Site, result.Area);
         Success = result.Success;
         Steps = string.Join("\n", result.Steps);
         Error = result.Error ?? "";
         VideoSummary = string.Join("\n", result.Video.Select(FormatVideo));
     }
 
-    private static string ProvisionPlanRowLocation(string building, string area)
+    private static string ProvisionPlanRowLocation(string site, string area)
     {
-        var joined = string.Join(" · ", new[] { building, area }.Where(p => p.Length > 0));
+        var joined = string.Join(" · ", new[] { site, area }.Where(p => p.Length > 0));
         return joined.Length == 0 ? "(unknown)" : joined;
     }
 

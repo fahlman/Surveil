@@ -2,11 +2,11 @@ using System.Net;
 
 namespace Surveil.Core;
 
-/// <summary>A camera to be provisioned, tagged with where it lives per the building map.</summary>
-public sealed record CameraProvisionTarget(IPAddress Address, Uri DeviceEndpoint, string Building, string Area)
+/// <summary>A camera to be provisioned, tagged with where it lives per the site map.</summary>
+public sealed record CameraProvisionTarget(IPAddress Address, Uri DeviceEndpoint, string Site, string Area)
 {
-    /// <summary>True when the address fell inside a configured building range.</summary>
-    public bool LocationKnown => Building.Length > 0;
+    /// <summary>True when the address fell inside a configured site range.</summary>
+    public bool LocationKnown => Site.Length > 0;
 }
 
 /// <summary>The concrete identity to push to one camera, derived from its location.</summary>
@@ -14,7 +14,7 @@ public sealed record CameraProvisionPlan(CameraProvisionTarget Target, string Na
 
 /// <summary>Per-camera outcome. <see cref="Steps"/> lists what was applied and verified.</summary>
 public sealed record CameraProvisionResult(
-    IPAddress Address, string Building, string Area,
+    IPAddress Address, string Site, string Area,
     bool Success, IReadOnlyList<string> Steps, string? Error,
     IReadOnlyList<VideoEncoderOutcome> Video);
 
@@ -29,7 +29,7 @@ public sealed record BulkProvisionOptions
     /// <summary>Null derives the POSIX zone from this computer's time zone.</summary>
     public string? NtpPosixTimeZone { get; init; }
     public int MaxConcurrency { get; init; } = 8;
-    /// <summary>Skip cameras whose address is not inside any configured building range.</summary>
+    /// <summary>Skip cameras whose address is not inside any configured site range.</summary>
     public bool SkipUnknownLocation { get; init; } = true;
     /// <summary>When true, set every video encoder on each camera to its maximum resolution and, at
     /// that resolution, the highest frame rate the camera accepts (resolution-first). Requires a
@@ -98,7 +98,7 @@ public interface IProvisionableVideo : IDisposable
 }
 
 /// <summary>Bulk-provisions cameras over ONVIF as an iCT replacement: it derives each camera's
-/// name and hostname from the building map, applies them (plus NTP), verifies via read-back, and
+/// name and hostname from the site map, applies them (plus NTP), verifies via read-back, and
 /// returns a per-camera pass/fail report instead of a silent GUI you have to trust.</summary>
 public sealed class BulkProvisioningService
 {
@@ -128,7 +128,7 @@ public sealed class BulkProvisioningService
             naming) { }
 
     /// <summary>Builds targets from scanned addresses, using the standard device-service endpoint and
-    /// locating each address in the building map.</summary>
+    /// locating each address in the site map.</summary>
     public IReadOnlyList<CameraProvisionTarget> TargetsFromAddresses(IEnumerable<IPAddress> addresses) =>
         addresses.Select(address => Locate(address, DefaultDeviceEndpoint(address))).ToArray();
 
@@ -247,7 +247,7 @@ public sealed class BulkProvisioningService
                         + (!options.DryRun && outcome.ClampedByCamera ? " (camera-limited)" : ""));
                 }
             }
-            return new CameraProvisionResult(target.Address, target.Building, target.Area, true, steps, null, videoOutcomes);
+            return new CameraProvisionResult(target.Address, target.Site, target.Area, true, steps, null, videoOutcomes);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -255,22 +255,22 @@ public sealed class BulkProvisioningService
         }
         catch (Exception error)
         {
-            return new CameraProvisionResult(target.Address, target.Building, target.Area, false, steps, Describe(error), videoOutcomes);
+            return new CameraProvisionResult(target.Address, target.Site, target.Area, false, steps, Describe(error), videoOutcomes);
         }
     }
 
     private CameraProvisionTarget Locate(IPAddress address, Uri endpoint)
     {
         var location = NetworkRanges.Locate(config, address);
-        return new CameraProvisionTarget(address, endpoint, location?.Building ?? "", location?.Area ?? "");
+        return new CameraProvisionTarget(address, endpoint, location?.Site ?? "", location?.Area ?? "");
     }
 
     private static (string Name, string? Hostname) DefaultNaming(CameraProvisionTarget target)
     {
-        var name = string.Join(" ", new[] { target.Building, target.Area }.Where(part => part.Length > 0));
+        var name = string.Join(" ", new[] { target.Site, target.Area }.Where(part => part.Length > 0));
         if (name.Length == 0) name = target.Address.ToString();
         var lastOctet = target.Address.GetAddressBytes()[^1];
-        var hostname = Slug($"{target.Building}-{target.Area}-{lastOctet}");
+        var hostname = Slug($"{target.Site}-{target.Area}-{lastOctet}");
         return (name, hostname.Length == 0 ? null : hostname);
     }
 

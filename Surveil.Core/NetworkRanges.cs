@@ -47,12 +47,12 @@ public static class NetworkRanges
         return addresses.Select(IpAddress.FromUInt32).ToArray();
     }
 
-    public static (string Building, string Area)? Locate(SurveilConfig config, IPAddress address)
+    public static (string Site, string Area)? Locate(SurveilConfig config, IPAddress address)
     {
         var value = IpAddress.ToUInt32(address);
-        foreach (var building in config.Buildings)
-        foreach (var range in building.Ranges)
-            if (Parse(range.Cidr).Contains(value)) return (building.Name, range.Name);
+        foreach (var site in config.Sites)
+        foreach (var range in site.Ranges)
+            if (Parse(range.Cidr).Contains(value)) return (site.Name, range.Name);
         return null;
     }
 }

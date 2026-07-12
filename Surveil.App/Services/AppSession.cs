@@ -3,7 +3,7 @@ using Surveil.Core;
 
 namespace Surveil.App.Services;
 
-/// <summary>Process-wide state shared by every page: the core service, the loaded building
+/// <summary>Process-wide state shared by every page: the core service, the loaded site
 /// map, and the ONVIF credentials used for provisioning. The password is held in memory only
 /// and is never written to disk.</summary>
 public sealed class AppSession
@@ -17,8 +17,8 @@ public sealed class AppSession
     /// <summary>Persisted user defaults (port, timeouts, default username, …). Never the password.</summary>
     public AppSettings Settings { get; private set; }
 
-    /// <summary>The building map, kept in memory so every page sees the same edits. Reloaded
-    /// from disk on startup; persisted explicitly from the Buildings page.</summary>
+    /// <summary>The site map, kept in memory so every page sees the same edits. Reloaded
+    /// from disk on startup; persisted explicitly from the Sites page.</summary>
     public SurveilConfig Config { get; set; } = new();
 
     /// <summary>ONVIF credentials for provisioning and camera connections (in-memory only).</summary>

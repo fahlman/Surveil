@@ -4,10 +4,10 @@ namespace Surveil.Core;
 
 public sealed class SurveilConfig
 {
-    public List<Building> Buildings { get; set; } = [];
+    public List<Site> Sites { get; set; } = [];
 }
 
-public sealed class Building
+public sealed class Site
 {
     public string Name { get; set; } = "";
     public List<NetworkRange> Ranges { get; set; } = [];
@@ -29,7 +29,7 @@ public sealed class Inventory
 public sealed class CameraRecord
 {
     public string Ip { get; set; } = "";
-    public string Building { get; set; } = "";
+    public string Site { get; set; } = "";
     public string Area { get; set; } = "";
     public ulong FirstSeen { get; set; }
     public ulong LastSeen { get; set; }
@@ -38,14 +38,14 @@ public sealed class CameraRecord
 public sealed class FoundCamera
 {
     public string Ip { get; set; } = "";
-    public string Building { get; set; } = "";
+    public string Site { get; set; } = "";
     public string Area { get; set; } = "";
 }
 
 public sealed class CameraStatus
 {
     public string Ip { get; set; } = "";
-    public string Building { get; set; } = "";
+    public string Site { get; set; } = "";
     public string Area { get; set; } = "";
     public ulong FirstSeen { get; set; }
     public ulong LastSeen { get; set; }
