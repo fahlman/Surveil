@@ -13,6 +13,9 @@ public sealed partial class MainWindow : Window
         Title = "Surveil — ONVIF camera provisioning";
     }
 
+    private void ToggleProvision_Click(object sender, RoutedEventArgs e) =>
+        ProvisionDrawer.IsPaneOpen = !ProvisionDrawer.IsPaneOpen;
+
     private async void Nav_Loaded(object sender, RoutedEventArgs e)
     {
         // Load the site map once up front so every page starts from the same config.
