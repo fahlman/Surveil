@@ -30,38 +30,22 @@
             <TextBlock Text="{Binding DataDirectory}" Opacity="0.7" Style="{StaticResource CaptionTextBlockStyle}" />
         </StackPanel>
 
-        <Grid Grid.Row="1">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="Auto" />
-            </Grid.ColumnDefinitions>
-
-            <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                <Button Content="Save" Style="{StaticResource AccentButtonStyle}" Command="{Binding SaveCommand}" />
-                <Button Content="Import…" Click="OnImportClick" />
-                <Button Content="Export…" Click="OnExportClick" />
-                <Border Width="1" Height="24" Margin="4,0" Background="{ThemeResource CardStrokeColorDefaultBrush}" />
-                <Button Content="Scan checked" Command="{Binding ScanSelectedCommand}"
-                        IsEnabled="{Binding IsBusy, Converter={StaticResource InverseBool}}"
-                        ToolTipService.ToolTip="Scan the checked CIDRs and list cameras under each" />
-                <Button Content="Discover" Command="{Binding DiscoverCommand}"
-                        IsEnabled="{Binding IsBusy, Converter={StaticResource InverseBool}}"
-                        ToolTipService.ToolTip="Find ONVIF cameras on the local network; unmapped ones go to the Unmapped group" />
-                <Button Content="Cancel" Command="{Binding CancelCommand}" IsEnabled="{Binding IsBusy}" />
-                <muxc:ProgressRing Width="20" Height="20" VerticalAlignment="Center"
-                        IsActive="{Binding IsBusy}"
-                        Visibility="{Binding IsBusy, Converter={StaticResource BoolToVis}}" />
-            </StackPanel>
-
-            <ToggleButton Grid.Column="1" VerticalAlignment="Center"
-                    IsChecked="{Binding Provision.IsPaneOpen, Mode=TwoWay}"
-                    ToolTipService.ToolTip="Show or hide the Provision panel">
-                <StackPanel Orientation="Horizontal" Spacing="8">
-                    <FontIcon Glyph="&#xE9F9;" FontFamily="Segoe MDL2 Assets" FontSize="16" />
-                    <TextBlock Text="Provision" />
-                </StackPanel>
-            </ToggleButton>
-        </Grid>
+        <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+            <Button Content="Save" Style="{StaticResource AccentButtonStyle}" Command="{Binding SaveCommand}" />
+            <Button Content="Import…" Click="OnImportClick" />
+            <Button Content="Export…" Click="OnExportClick" />
+            <Border Width="1" Height="24" Margin="4,0" Background="{ThemeResource CardStrokeColorDefaultBrush}" />
+            <Button Content="Scan checked" Command="{Binding ScanSelectedCommand}"
+                    IsEnabled="{Binding IsBusy, Converter={StaticResource InverseBool}}"
+                    ToolTipService.ToolTip="Scan the checked CIDRs and list cameras under each" />
+            <Button Content="Discover" Command="{Binding DiscoverCommand}"
+                    IsEnabled="{Binding IsBusy, Converter={StaticResource InverseBool}}"
+                    ToolTipService.ToolTip="Find ONVIF cameras on the local network; unmapped ones go to the Unmapped group" />
+            <Button Content="Cancel" Command="{Binding CancelCommand}" IsEnabled="{Binding IsBusy}" />
+            <muxc:ProgressRing Width="20" Height="20" VerticalAlignment="Center"
+                    IsActive="{Binding IsBusy}"
+                    Visibility="{Binding IsBusy, Converter={StaticResource BoolToVis}}" />
+        </StackPanel>
 
         <muxc:InfoBar Grid.Row="2"
             IsOpen="{Binding StatusMessage, Converter={StaticResource StringToBool}}"

@@ -11,11 +11,10 @@ public sealed partial class MainWindow : Window
     {
         InitializeComponent();
         Title = "Surveil — ONVIF camera provisioning";
-
-        // The shell's pane and the Sites toolbar toggle bind to this one shared instance,
-        // so opening/closing from either place stays in sync.
-        RootGrid.DataContext = AppSession.Current.Provision;
     }
+
+    private void ToggleProvision_Click(object sender, RoutedEventArgs e) =>
+        ProvisionDrawer.IsPaneOpen = !ProvisionDrawer.IsPaneOpen;
 
     private async void Nav_Loaded(object sender, RoutedEventArgs e)
     {

@@ -33,9 +33,6 @@ public sealed partial class SitesViewModel : ObservableObject
 
     public string DataDirectory => session.DataDirectory;
 
-    /// <summary>The shared Provision view model, so the toolbar's toggle can show/hide the pane.</summary>
-    public ProvisionViewModel Provision => session.Provision;
-
     public SitesViewModel()
     {
         Load();
