@@ -6,6 +6,7 @@
     xmlns:muxc="using:Microsoft.UI.Xaml.Controls"
     xmlns:conv="using:Surveil.App.Converters"
     xmlns:vm="using:Surveil.App.ViewModels"
+    xmlns:core="using:Surveil.Core"
     NavigationCacheMode="Required">
 
     <Page.Resources>
@@ -13,6 +14,7 @@
         <conv:ErrorToSeverityConverter x:Key="ErrorToSeverity" />
         <conv:BoolToVisibilityConverter x:Key="BoolToVis" />
         <conv:CountZeroToVisibilityConverter x:Key="CountZeroToVis" />
+        <conv:InverseBoolConverter x:Key="InverseBool" />
     </Page.Resources>
 
     <Grid Padding="24" RowSpacing="16">
@@ -28,10 +30,18 @@
             <TextBlock Text="{Binding DataDirectory}" Opacity="0.7" Style="{StaticResource CaptionTextBlockStyle}" />
         </StackPanel>
 
-        <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="8">
+        <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
             <Button Content="Save" Style="{StaticResource AccentButtonStyle}" Command="{Binding SaveCommand}" />
             <Button Content="Import…" Click="OnImportClick" />
             <Button Content="Export…" Click="OnExportClick" />
+            <Border Width="1" Height="24" Margin="4,0" Background="{ThemeResource CardStrokeColorDefaultBrush}" />
+            <Button Content="Scan checked" Command="{Binding ScanSelectedCommand}"
+                    IsEnabled="{Binding IsScanning, Converter={StaticResource InverseBool}}"
+                    ToolTipService.ToolTip="Scan the checked CIDRs and list cameras under each" />
+            <Button Content="Cancel" Command="{Binding CancelScanCommand}" IsEnabled="{Binding IsScanning}" />
+            <muxc:ProgressRing Width="20" Height="20" VerticalAlignment="Center"
+                    IsActive="{Binding IsScanning}"
+                    Visibility="{Binding IsScanning, Converter={StaticResource BoolToVis}}" />
         </StackPanel>
 
         <muxc:InfoBar Grid.Row="2"
@@ -51,13 +61,18 @@
                                   BorderThickness="1" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="Auto" />
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="Auto" />
                                     <ColumnDefinition Width="Auto" />
                                     <ColumnDefinition Width="Auto" />
                                 </Grid.ColumnDefinitions>
 
-                                <Button Grid.Column="0" Command="{x:Bind ToggleExpandCommand}"
+                                <CheckBox Grid.Column="0" MinWidth="0" VerticalAlignment="Center"
+                                          IsChecked="{Binding IsSelected, Mode=TwoWay}"
+                                          ToolTipService.ToolTip="Select all CIDRs in this building" />
+
+                                <Button Grid.Column="1" Command="{x:Bind ToggleExpandCommand}"
                                         Background="Transparent" BorderThickness="0" Padding="6,4"
                                         ToolTipService.ToolTip="Expand / collapse">
                                     <Grid>
@@ -68,14 +83,14 @@
                                     </Grid>
                                 </Button>
 
-                                <TextBox Grid.Column="1" Text="{x:Bind Name, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                <TextBox Grid.Column="2" Text="{x:Bind Name, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                          Visibility="{x:Bind IsEditing, Mode=OneWay, Converter={StaticResource BoolToVis}}" />
-                                <TextBlock Grid.Column="1" Text="{x:Bind Name, Mode=OneWay}" VerticalAlignment="Center"
+                                <TextBlock Grid.Column="2" Text="{x:Bind Name, Mode=OneWay}" VerticalAlignment="Center"
                                            FontWeight="SemiBold" TextTrimming="CharacterEllipsis"
                                            ToolTipService.ToolTip="{x:Bind Name, Mode=OneWay}"
                                            Visibility="{x:Bind IsEditing, Mode=OneWay, Converter={StaticResource BoolToVis}, ConverterParameter=invert}" />
 
-                                <Button Grid.Column="2" Command="{x:Bind ToggleEditCommand}">
+                                <Button Grid.Column="3" Command="{x:Bind ToggleEditCommand}">
                                     <Grid>
                                         <FontIcon Glyph="&#xE73E;" FontFamily="Segoe MDL2 Assets" FontSize="14"
                                                   Visibility="{x:Bind IsEditing, Mode=OneWay, Converter={StaticResource BoolToVis}}" ToolTipService.ToolTip="Done" />
@@ -83,58 +98,83 @@
                                                   Visibility="{x:Bind IsEditing, Mode=OneWay, Converter={StaticResource BoolToVis}, ConverterParameter=invert}" ToolTipService.ToolTip="Edit name" />
                                     </Grid>
                                 </Button>
-                                <Button Grid.Column="3" Command="{x:Bind RemoveCommand}" ToolTipService.ToolTip="Delete building">
+                                <Button Grid.Column="4" Command="{x:Bind RemoveCommand}" ToolTipService.ToolTip="Delete building">
                                     <FontIcon Glyph="&#xE74D;" FontFamily="Segoe MDL2 Assets" FontSize="14" />
                                 </Button>
-                                <Button Grid.Column="4" Command="{x:Bind AddBuildingCommand}" ToolTipService.ToolTip="Add building">
+                                <Button Grid.Column="5" Command="{x:Bind AddBuildingCommand}" ToolTipService.ToolTip="Add building">
                                     <FontIcon Glyph="&#xE710;" FontFamily="Segoe MDL2 Assets" FontSize="14" />
                                 </Button>
                             </Grid>
 
                             <!-- CIDR children -->
-                            <StackPanel Margin="36,4,0,0"
+                            <StackPanel Margin="24,4,0,0"
                                         Visibility="{x:Bind IsExpanded, Mode=OneWay, Converter={StaticResource BoolToVis}}">
                                 <ItemsControl ItemsSource="{x:Bind Children}">
                                     <ItemsControl.ItemTemplate>
                                         <DataTemplate x:DataType="vm:NetworkRangeItem">
-                                            <Grid ColumnSpacing="6" Padding="0,3">
-                                                <Grid.ColumnDefinitions>
-                                                    <ColumnDefinition Width="*" />
-                                                    <ColumnDefinition Width="*" MinWidth="120" />
-                                                    <ColumnDefinition Width="Auto" />
-                                                    <ColumnDefinition Width="Auto" />
-                                                    <ColumnDefinition Width="Auto" />
-                                                </Grid.ColumnDefinitions>
+                                            <StackPanel>
+                                                <Grid ColumnSpacing="6" Padding="0,3">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="Auto" />
+                                                        <ColumnDefinition Width="*" />
+                                                        <ColumnDefinition Width="*" MinWidth="120" />
+                                                        <ColumnDefinition Width="Auto" />
+                                                        <ColumnDefinition Width="Auto" />
+                                                        <ColumnDefinition Width="Auto" />
+                                                    </Grid.ColumnDefinitions>
 
-                                                <TextBox Grid.Column="0" PlaceholderText="Area / name"
-                                                         Text="{x:Bind Name, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                                         Visibility="{x:Bind IsEditing, Mode=OneWay, Converter={StaticResource BoolToVis}}" />
-                                                <TextBox Grid.Column="1" PlaceholderText="CIDR e.g. 10.20.0.0/24"
-                                                         Text="{x:Bind Cidr, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                                         Visibility="{x:Bind IsEditing, Mode=OneWay, Converter={StaticResource BoolToVis}}" />
+                                                    <CheckBox Grid.Column="0" MinWidth="0" VerticalAlignment="Center"
+                                                              IsChecked="{Binding IsSelected, Mode=TwoWay}"
+                                                              ToolTipService.ToolTip="Select this CIDR for scanning" />
 
-                                                <TextBlock Grid.Column="0" Text="{x:Bind Name, Mode=OneWay}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
-                                                           ToolTipService.ToolTip="{x:Bind Name, Mode=OneWay}"
-                                                           Visibility="{x:Bind IsEditing, Mode=OneWay, Converter={StaticResource BoolToVis}, ConverterParameter=invert}" />
-                                                <TextBlock Grid.Column="1" Text="{x:Bind Cidr, Mode=OneWay}" VerticalAlignment="Center" FontFamily="Consolas" TextTrimming="CharacterEllipsis"
-                                                           ToolTipService.ToolTip="{x:Bind Cidr, Mode=OneWay}"
-                                                           Visibility="{x:Bind IsEditing, Mode=OneWay, Converter={StaticResource BoolToVis}, ConverterParameter=invert}" />
+                                                    <TextBox Grid.Column="1" PlaceholderText="Area / name"
+                                                             Text="{x:Bind Name, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                             Visibility="{x:Bind IsEditing, Mode=OneWay, Converter={StaticResource BoolToVis}}" />
+                                                    <TextBox Grid.Column="2" PlaceholderText="CIDR e.g. 10.20.0.0/24"
+                                                             Text="{x:Bind Cidr, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                             Visibility="{x:Bind IsEditing, Mode=OneWay, Converter={StaticResource BoolToVis}}" />
 
-                                                <Button Grid.Column="2" Command="{x:Bind ToggleEditCommand}">
-                                                    <Grid>
-                                                        <FontIcon Glyph="&#xE73E;" FontFamily="Segoe MDL2 Assets" FontSize="14"
-                                                                  Visibility="{x:Bind IsEditing, Mode=OneWay, Converter={StaticResource BoolToVis}}" ToolTipService.ToolTip="Done" />
-                                                        <FontIcon Glyph="&#xE70F;" FontFamily="Segoe MDL2 Assets" FontSize="14"
-                                                                  Visibility="{x:Bind IsEditing, Mode=OneWay, Converter={StaticResource BoolToVis}, ConverterParameter=invert}" ToolTipService.ToolTip="Edit" />
-                                                    </Grid>
-                                                </Button>
-                                                <Button Grid.Column="3" Command="{x:Bind RemoveCommand}" ToolTipService.ToolTip="Delete range">
-                                                    <FontIcon Glyph="&#xE74D;" FontFamily="Segoe MDL2 Assets" FontSize="14" />
-                                                </Button>
-                                                <Button Grid.Column="4" Command="{x:Bind AddSiblingCommand}" ToolTipService.ToolTip="Add range below">
-                                                    <FontIcon Glyph="&#xE710;" FontFamily="Segoe MDL2 Assets" FontSize="14" />
-                                                </Button>
-                                            </Grid>
+                                                    <TextBlock Grid.Column="1" Text="{x:Bind Name, Mode=OneWay}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                                                               ToolTipService.ToolTip="{x:Bind Name, Mode=OneWay}"
+                                                               Visibility="{x:Bind IsEditing, Mode=OneWay, Converter={StaticResource BoolToVis}, ConverterParameter=invert}" />
+                                                    <TextBlock Grid.Column="2" Text="{x:Bind Cidr, Mode=OneWay}" VerticalAlignment="Center" FontFamily="Consolas" TextTrimming="CharacterEllipsis"
+                                                               ToolTipService.ToolTip="{x:Bind Cidr, Mode=OneWay}"
+                                                               Visibility="{x:Bind IsEditing, Mode=OneWay, Converter={StaticResource BoolToVis}, ConverterParameter=invert}" />
+
+                                                    <Button Grid.Column="3" Command="{x:Bind ToggleEditCommand}">
+                                                        <Grid>
+                                                            <FontIcon Glyph="&#xE73E;" FontFamily="Segoe MDL2 Assets" FontSize="14"
+                                                                      Visibility="{x:Bind IsEditing, Mode=OneWay, Converter={StaticResource BoolToVis}}" ToolTipService.ToolTip="Done" />
+                                                            <FontIcon Glyph="&#xE70F;" FontFamily="Segoe MDL2 Assets" FontSize="14"
+                                                                      Visibility="{x:Bind IsEditing, Mode=OneWay, Converter={StaticResource BoolToVis}, ConverterParameter=invert}" ToolTipService.ToolTip="Edit" />
+                                                        </Grid>
+                                                    </Button>
+                                                    <Button Grid.Column="4" Command="{x:Bind RemoveCommand}" ToolTipService.ToolTip="Delete range">
+                                                        <FontIcon Glyph="&#xE74D;" FontFamily="Segoe MDL2 Assets" FontSize="14" />
+                                                    </Button>
+                                                    <Button Grid.Column="5" Command="{x:Bind AddSiblingCommand}" ToolTipService.ToolTip="Add range below">
+                                                        <FontIcon Glyph="&#xE710;" FontFamily="Segoe MDL2 Assets" FontSize="14" />
+                                                    </Button>
+                                                </Grid>
+
+                                                <!-- Cameras found in this CIDR -->
+                                                <ItemsControl ItemsSource="{x:Bind Cameras}" Margin="30,0,0,4">
+                                                    <ItemsControl.ItemTemplate>
+                                                        <DataTemplate x:DataType="core:CameraStatus">
+                                                            <Grid ColumnSpacing="8" Padding="0,2">
+                                                                <Grid.ColumnDefinitions>
+                                                                    <ColumnDefinition Width="Auto" />
+                                                                    <ColumnDefinition Width="150" />
+                                                                    <ColumnDefinition Width="*" />
+                                                                </Grid.ColumnDefinitions>
+                                                                <FontIcon Grid.Column="0" Glyph="&#xE722;" FontFamily="Segoe MDL2 Assets" FontSize="12" Opacity="0.7" VerticalAlignment="Center" />
+                                                                <TextBlock Grid.Column="1" Text="{x:Bind Ip}" FontFamily="Consolas" VerticalAlignment="Center" />
+                                                                <TextBlock Grid.Column="2" Text="{x:Bind Status}" Opacity="0.7" VerticalAlignment="Center" />
+                                                            </Grid>
+                                                        </DataTemplate>
+                                                    </ItemsControl.ItemTemplate>
+                                                </ItemsControl>
+                                            </StackPanel>
                                         </DataTemplate>
                                     </ItemsControl.ItemTemplate>
                                 </ItemsControl>
