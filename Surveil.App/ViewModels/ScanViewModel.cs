@@ -114,6 +114,15 @@ public sealed partial class ScanViewModel : ObservableObject
     [RelayCommand]
     private void Cancel() => cts?.Cancel();
 
+    /// <summary>Push the responding cameras into the Provision drawer and open it.</summary>
+    [RelayCommand]
+    private void SendToProvision()
+    {
+        var ips = Results.Where(r => r.Status != "offline").Select(r => r.Ip).Distinct().ToArray();
+        if (ips.Length == 0) return;
+        session.RequestProvision(string.Join(" ", ips));
+    }
+
     private static List<string> ParseTargets(string text) => text
         .Split(new[] { ',', ' ', '\t', '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
         .ToList();

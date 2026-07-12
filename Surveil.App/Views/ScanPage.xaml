@@ -15,6 +15,7 @@
         <conv:InverseBoolConverter x:Key="InverseBool" />
         <conv:BoolToVisibilityConverter x:Key="BoolToVis" />
         <conv:CountZeroToVisibilityConverter x:Key="CountZeroToVis" />
+        <conv:CountPositiveToBoolConverter x:Key="CountPositiveToBool" />
     </Page.Resources>
 
     <Grid Padding="24" RowSpacing="16">
@@ -45,6 +46,9 @@
                     Command="{Binding ScanCommand}"
                     IsEnabled="{Binding IsScanning, Converter={StaticResource InverseBool}}" />
             <Button Content="Cancel" Command="{Binding CancelCommand}" IsEnabled="{Binding IsScanning}" />
+            <Button Content="Send to Provision →" Command="{Binding SendToProvisionCommand}"
+                    IsEnabled="{Binding Results.Count, Converter={StaticResource CountPositiveToBool}}"
+                    ToolTipService.ToolTip="Load these cameras into the Provision panel" />
             <muxc:ProgressBar Width="220" VerticalAlignment="Center"
                     Value="{Binding ProgressValue}" Maximum="{Binding ProgressMaximum}"
                     IsIndeterminate="{Binding ProgressIndeterminate}"
