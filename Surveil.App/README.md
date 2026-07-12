@@ -9,16 +9,13 @@ Left-nav pages, plus **Provision** as a toggle-able right-side drawer and **Sett
 
 | Page/panel | What it does                                                                 | Core API |
 |------------|------------------------------------------------------------------------------|----------|
-| **Buildings** | The hierarchical map **and** the inventory: a tree of building → CIDR → cameras. Check CIDRs and **Scan** them (cameras nest under their CIDR), or **Discover** the network (strays land in an **Unmapped** group). Loads the saved inventory on startup. Save / import / export JSON. | `SurveilService.ScanAsync` · `DiscoverAsync` · `JsonStore.LoadInventoryAsync` · config APIs |
-| **Scan**      | Standalone TCP port sweep of IPs/CIDRs; live progress; new/online/offline vs inventory | `SurveilService.ScanAsync` |
-| **Discover**  | Standalone WS-Discovery; lists ONVIF responders tagged by building/area       | `SurveilService.DiscoverAsync` |
+| **Buildings** | The whole app: a tree of building → CIDR → cameras that is both the map **and** the inventory. Check CIDRs and **Scan** them (cameras nest under their CIDR), or **Discover** the network (strays land in an **Unmapped** group). Loads the saved inventory on startup. Save / import / export JSON. | `SurveilService.ScanAsync` · `DiscoverAsync` · `JsonStore.LoadInventoryAsync` · config APIs |
 | **Provision** *(docked right panel)* | Derive name/hostname from the map, set NTP, maximize video (codec pref, resolution-first); **dry-run** preview; truthful per-camera results | `BulkProvisioningService.{Plan,ProvisionAsync}` |
 | **Settings**  | Persisted defaults (username, port/timeout/concurrency, codecs, dry-run). Never stores the password. | `SettingsStore` → settings.json |
 
-The Provision panel is **always docked on the right**. Scan and Discover have a
-**"Send to Provision →"** button that loads the found cameras into it. The building map and ONVIF
-credentials are shared via `Services/AppSession`. The password is held in memory only — never
-written to disk. Pages use `NavigationCacheMode=Required`, so state survives switching tabs.
+It's a single-window app: the **Buildings** tree in the middle, **Provision** always docked on the
+right, **Settings** in the nav footer. The building map and ONVIF credentials are shared via
+`Services/AppSession`; the password is held in memory only, never written to disk.
 
 An app-level `UnhandledException` handler logs to `logs/surveil.log` under the data dir and shows an
 error dialog instead of crashing; view-model operations report failures in an InfoBar, not a crash.
