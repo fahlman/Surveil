@@ -55,11 +55,14 @@ public sealed class OnvifMedia2Client : IOnvifVideoClient
     {
         var response = await SendAsync("GetProfiles",
             new XElement(M("GetProfiles"), new XElement(M("Type"), "VideoEncoder")), cancellationToken);
-        return response.Descendants(M("Profiles")).Select(profile => new OnvifMediaProfile(
-            RequiredAttribute(profile, "token"),
-            Value(profile, S("Name")) ?? "",
-            profile.Descendants(S("VideoEncoder")).Attributes("token").FirstOrDefault()?.Value,
-            profile.Descendants(S("VideoSource")).Elements(S("SourceToken")).FirstOrDefault()?.Value)).ToArray();
+        return response.Descendants(M("Profiles")).Select(profile => {
+            var source = Descendant(profile, "VideoSource");
+            return new OnvifMediaProfile(
+                RequiredAttribute(profile, "token"),
+                Child(profile, "Name")?.Value ?? "",
+                Descendant(profile, "VideoEncoder")?.Attribute("token")?.Value,
+                source is null ? null : Child(source, "SourceToken")?.Value);
+        }).ToArray();
     }
 
     public async Task<IReadOnlyList<OnvifVideoEncoderConfiguration>> GetVideoEncoderConfigurationsAsync(
@@ -131,7 +134,7 @@ public sealed class OnvifMedia2Client : IOnvifVideoClient
         var quality = value.Element(S("QualityRange")) ?? throw new FormatException("Missing QualityRange.");
         var gov = value.Attribute("GovLengthRange")?.Value.Split(' ', StringSplitOptions.RemoveEmptyEntries)
             .Select(x => int.Parse(x, CultureInfo.InvariantCulture)).ToArray();
-        return new OnvifVideoEncoderOptions(RequiredValue(value, S("Encoding")),
+        return new OnvifVideoEncoderOptions(EncodingOf(value),
             value.Elements(S("ResolutionsAvailable")).Select(x => new OnvifResolution(Int(x, "Width"), Int(x, "Height"))).ToArray(),
             (value.Attribute("FrameRatesSupported")?.Value ?? "").Split(' ', StringSplitOptions.RemoveEmptyEntries)
                 .Select(x => float.Parse(x, CultureInfo.InvariantCulture)).ToArray(),
@@ -189,6 +192,14 @@ public sealed class OnvifMedia2Client : IOnvifVideoClient
     private static string RequiredAttribute(XElement e, string name) => e.Attribute(name)?.Value ?? throw new FormatException($"Missing {name} attribute.");
     private static string? Value(XElement e, XName name) => e.Element(name)?.Value;
     private static string RequiredValue(XElement e, XName name) => Value(e, name) ?? throw new FormatException($"Missing {name.LocalName}.");
+    // Media2 qualifies MediaProfile/ConfigurationSet members (Name, VideoSource, VideoEncoder) in the
+    // ver20 media namespace (tr2); tolerate the ver10 schema namespace (tt) for devices that differ.
+    private static XElement? Child(XElement e, string localName) => e.Element(M(localName)) ?? e.Element(S(localName));
+    private static XElement? Descendant(XElement e, string localName) =>
+        e.Descendants(M(localName)).FirstOrDefault() ?? e.Descendants(S(localName)).FirstOrDefault();
+    // VideoEncoder2ConfigurationOptions carries Encoding as an attribute; accept a tt element as a fallback.
+    private static string EncodingOf(XElement options) => options.Attribute("Encoding")?.Value
+        ?? Value(options, S("Encoding")) ?? throw new FormatException("Missing Encoding.");
     private static int Int(XElement e, string name) => int.Parse(RequiredValue(e, S(name)), CultureInfo.InvariantCulture);
     private static int? IntOrNull(XElement? e, string name) => e?.Element(S(name)) is { } x ? int.Parse(x.Value, CultureInfo.InvariantCulture) : null;
     private static int? AttributeInt(XElement e, string name) => e.Attribute(name) is { } x ? int.Parse(x.Value, CultureInfo.InvariantCulture) : null;
