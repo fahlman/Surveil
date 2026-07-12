@@ -63,4 +63,15 @@ public sealed class SurveilService
         var buildings = cameras.Select(item => item.Building).Where(name => name.Length > 0).Distinct().Count();
         return new DiscoveryResult(cameras, subnets, buildings);
     }
+
+    public Task<OnvifCameraConnection> ConnectCameraAsync(Uri deviceEndpoint, string username, string password,
+        IEnumerable<string>? discoveryScopes = null, CancellationToken cancellationToken = default) =>
+        new OnvifCameraConnector(username, password)
+            .ConnectAsync(deviceEndpoint, discoveryScopes, cancellationToken);
+
+    public OnvifImagingClient CreateImagingClient(Uri imagingEndpoint, string username, string password) =>
+        new(imagingEndpoint, username, password);
+
+    public OnvifDeviceClient CreateDeviceClient(Uri deviceEndpoint, string username, string password) =>
+        new(deviceEndpoint, username, password);
 }
