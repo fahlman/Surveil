@@ -59,6 +59,13 @@ public sealed partial class BuildingsViewModel : ObservableObject
         SelectedBuilding = Buildings.Count == 0 ? null : Buildings[Math.Max(0, index - 1)];
     }
 
+    /// <summary>Lock the building name after editing, or unlock it to edit again.</summary>
+    [RelayCommand]
+    private void ToggleEditBuilding()
+    {
+        if (SelectedBuilding is not null) SelectedBuilding.IsEditing = !SelectedBuilding.IsEditing;
+    }
+
     /// <summary>Add the first range (used by the empty-state button).</summary>
     [RelayCommand]
     private void AddRange()
