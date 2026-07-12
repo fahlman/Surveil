@@ -5,9 +5,8 @@ using Surveil.Core;
 
 namespace Surveil.App.ViewModels;
 
-/// <summary>A building node: the parent of its CIDR ranges. Expands/collapses via a chevron, its
-/// name locks after creation, and it owns its edit/delete/add-range commands (bound via x:Bind).
-/// The Core <see cref="Building"/> stays UI-agnostic.</summary>
+/// <summary>A building node: parent of its CIDR ranges. Expands/collapses via a chevron, name locks
+/// after creation, and its (tri-state) checkbox selects/deselects all of its CIDRs.</summary>
 public sealed partial class BuildingItem : ObservableObject
 {
     [ObservableProperty] private string name;
@@ -15,10 +14,15 @@ public sealed partial class BuildingItem : ObservableObject
     [ObservableProperty] private bool isEditing;
     [ObservableProperty] private bool isExpanded = true;
 
+    /// <summary>Null = some (but not all) CIDRs selected (indeterminate); true = all; false = none.</summary>
+    [ObservableProperty] private bool? isSelected = false;
+
+    private bool syncing;
+
     /// <summary>The CIDR ranges nested under this building.</summary>
     public ObservableCollection<NetworkRangeItem> Children { get; } = new();
 
-    /// <summary>The collection this building lives in (for self-removal).</summary>
+    /// <summary>The collection this building lives in (for self-removal / add-sibling).</summary>
     public ObservableCollection<BuildingItem>? Owner { get; set; }
 
     public BuildingItem(Building building, ObservableCollection<BuildingItem>? owner = null)
@@ -30,8 +34,7 @@ public sealed partial class BuildingItem : ObservableObject
         foreach (var range in building.Ranges) Children.Add(new NetworkRangeItem(range, this));
     }
 
-    /// <summary>A brand-new building starts editable, expanded, and with one empty CIDR ready
-    /// to fill in.</summary>
+    /// <summary>A brand-new building starts editable, expanded, and with one empty CIDR to fill in.</summary>
     public BuildingItem(string name, ObservableCollection<BuildingItem>? owner = null)
     {
         this.name = name;
@@ -47,6 +50,27 @@ public sealed partial class BuildingItem : ObservableObject
         Notes = Notes,
         Ranges = Children.Select(child => child.ToRange()).ToList(),
     };
+
+    // Checking the building selects/deselects every CIDR; a child changing rolls the state back up.
+    partial void OnIsSelectedChanged(bool? value)
+    {
+        if (syncing || value is not bool all) return;
+        syncing = true;
+        foreach (var child in Children) child.IsSelected = all;
+        syncing = false;
+    }
+
+    /// <summary>Recompute this building's checkbox from its children (all / none / some).</summary>
+    public void RefreshSelection()
+    {
+        if (syncing) return;
+        syncing = true;
+        IsSelected = Children.Count == 0 ? false
+            : Children.All(c => c.IsSelected) ? true
+            : Children.Any(c => c.IsSelected) ? null
+            : false;
+        syncing = false;
+    }
 
     [RelayCommand] private void ToggleEdit() => IsEditing = !IsEditing;
 
@@ -76,5 +100,6 @@ public sealed partial class BuildingItem : ObservableObject
     {
         Children.Add(new NetworkRangeItem(this));
         IsExpanded = true;
+        RefreshSelection();
     }
 }
