@@ -15,7 +15,8 @@ public sealed record CameraProvisionPlan(CameraProvisionTarget Target, string Na
 /// <summary>Per-camera outcome. <see cref="Steps"/> lists what was applied and verified.</summary>
 public sealed record CameraProvisionResult(
     IPAddress Address, string Building, string Area,
-    bool Success, IReadOnlyList<string> Steps, string? Error);
+    bool Success, IReadOnlyList<string> Steps, string? Error,
+    IReadOnlyList<VideoEncoderOutcome> Video);
 
 public readonly record struct BulkProvisionProgress(int Completed, int Total, int Succeeded, int Failed);
 
@@ -50,6 +51,11 @@ public interface IProvisionableDevice : IDisposable
 /// resolutions the camera reports it supports.</summary>
 public sealed record VideoEncoderInfo(
     string ConfigurationToken, OnvifResolution Current, IReadOnlyList<OnvifResolution> Supported);
+
+/// <summary>What actually happened to one encoder, for truthful UI display: what was requested,
+/// what was applied, whether it had to be clamped below the request, and whether a write occurred.</summary>
+public sealed record VideoEncoderOutcome(
+    string ConfigurationToken, OnvifResolution Requested, OnvifResolution Applied, bool Clamped, bool Changed);
 
 /// <summary>A camera's video-encoder surface, abstracted for testing. The default implementation
 /// connects over ONVIF and defers each write to the media client's capability validation.</summary>
@@ -152,6 +158,7 @@ public sealed class BulkProvisioningService
     {
         var target = plan.Target;
         var steps = new List<string>();
+        var videoOutcomes = new List<VideoEncoderOutcome>();
         try
         {
             if (options.SetName || options.SetHostname || options.SetNtp)
@@ -180,16 +187,16 @@ public sealed class BulkProvisioningService
                 {
                     var chosen = Clamp(cap, encoder.Supported);
                     if (chosen is null) continue;
-                    if (chosen == encoder.Current)
-                    {
-                        steps.Add($"video[{encoder.ConfigurationToken}]={Format(chosen)} (already set)");
-                        continue;
-                    }
-                    await video.SetResolutionAsync(encoder.ConfigurationToken, chosen, cancellationToken);
-                    steps.Add($"video[{encoder.ConfigurationToken}]={Format(chosen)}");
+                    var clamped = chosen != cap;
+                    var changed = chosen != encoder.Current;
+                    if (changed)
+                        await video.SetResolutionAsync(encoder.ConfigurationToken, chosen, cancellationToken);
+                    videoOutcomes.Add(new VideoEncoderOutcome(encoder.ConfigurationToken, cap, chosen, clamped, changed));
+                    steps.Add($"video[{encoder.ConfigurationToken}]={Format(chosen)}"
+                        + (clamped ? " (clamped)" : "") + (changed ? "" : " (already set)"));
                 }
             }
-            return new CameraProvisionResult(target.Address, target.Building, target.Area, true, steps, null);
+            return new CameraProvisionResult(target.Address, target.Building, target.Area, true, steps, null, videoOutcomes);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -197,7 +204,7 @@ public sealed class BulkProvisioningService
         }
         catch (Exception error)
         {
-            return new CameraProvisionResult(target.Address, target.Building, target.Area, false, steps, Describe(error));
+            return new CameraProvisionResult(target.Address, target.Building, target.Area, false, steps, Describe(error), videoOutcomes);
         }
     }
 
