@@ -5,11 +5,13 @@ on:
     paths:
       - "Surveil.Core/**"
       - "Surveil.Core.Tests/**"
+      - "Surveil.App/**"
       - ".github/workflows/dotnet.yml"
   pull_request:
     paths:
       - "Surveil.Core/**"
       - "Surveil.Core.Tests/**"
+      - "Surveil.App/**"
       - ".github/workflows/dotnet.yml"
   workflow_dispatch:
 
@@ -25,3 +27,13 @@ jobs:
         with:
           dotnet-version: "8.0.x"
       - run: dotnet test Surveil.Core.Tests/Surveil.Core.Tests.csproj --configuration Release
+
+  build-app:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: "8.0.x"
+      # Unpackaged WinUI 3 builds from NuGet (Windows App SDK) without the VS workload.
+      - run: dotnet build Surveil.App/Surveil.App.csproj --configuration Release -r win-x64
