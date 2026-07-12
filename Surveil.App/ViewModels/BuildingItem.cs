@@ -1,34 +1,61 @@
+using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
 using Surveil.Core;
 
 namespace Surveil.App.ViewModels;
 
-/// <summary>Observable wrapper over a Core <see cref="Building"/> so edits to its name refresh
-/// the list live (the Core model stays UI-agnostic — no INotifyPropertyChanged in the domain).
-/// Ranges are edited in place as plain <see cref="NetworkRange"/> objects.</summary>
+/// <summary>A building node: the parent of its CIDR ranges. Expands/collapses via a chevron, its
+/// name locks after creation, and it owns its edit/delete/add-range commands (bound via x:Bind).
+/// The Core <see cref="Building"/> stays UI-agnostic.</summary>
 public sealed partial class BuildingItem : ObservableObject
 {
     [ObservableProperty] private string name;
     [ObservableProperty] private string notes;
     [ObservableProperty] private bool isEditing;
+    [ObservableProperty] private bool isExpanded = true;
 
-    public List<NetworkRange> Ranges { get; set; }
+    /// <summary>The CIDR ranges nested under this building.</summary>
+    public ObservableCollection<NetworkRangeItem> Children { get; } = new();
 
-    public BuildingItem(Building building)
+    /// <summary>The collection this building lives in (for self-removal).</summary>
+    public ObservableCollection<BuildingItem>? Owner { get; set; }
+
+    public BuildingItem(Building building, ObservableCollection<BuildingItem>? owner = null)
     {
         name = building.Name;
         notes = building.Notes;
         isEditing = false;
-        Ranges = new List<NetworkRange>(building.Ranges);
+        Owner = owner;
+        foreach (var range in building.Ranges) Children.Add(new NetworkRangeItem(range, this));
     }
 
-    public BuildingItem(string name)
+    /// <summary>A brand-new building starts editable so its name can be set.</summary>
+    public BuildingItem(string name, ObservableCollection<BuildingItem>? owner = null)
     {
         this.name = name;
         notes = "";
-        isEditing = true;  // a new building opens editable so its name can be set
-        Ranges = new List<NetworkRange>();
+        isEditing = true;
+        Owner = owner;
     }
 
-    public Building ToBuilding() => new() { Name = Name, Notes = Notes, Ranges = Ranges };
+    public Building ToBuilding() => new()
+    {
+        Name = Name,
+        Notes = Notes,
+        Ranges = Children.Select(child => child.ToRange()).ToList(),
+    };
+
+    [RelayCommand] private void ToggleEdit() => IsEditing = !IsEditing;
+
+    [RelayCommand] private void ToggleExpand() => IsExpanded = !IsExpanded;
+
+    [RelayCommand] private void Remove() => Owner?.Remove(this);
+
+    [RelayCommand]
+    private void AddRange()
+    {
+        Children.Add(new NetworkRangeItem(this));
+        IsExpanded = true;
+    }
 }
