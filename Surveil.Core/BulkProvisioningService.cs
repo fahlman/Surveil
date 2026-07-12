@@ -30,6 +30,9 @@ public sealed record BulkProvisionOptions
     public int MaxConcurrency { get; init; } = 8;
     /// <summary>Skip cameras whose address is not inside any configured building range.</summary>
     public bool SkipUnknownLocation { get; init; } = true;
+    /// <summary>When set, push each camera's video encoder to the best resolution it supports at or
+    /// below this cap — clamped to the camera's own maximum. Requires a video factory.</summary>
+    public OnvifResolution? TargetResolution { get; init; }
 }
 
 /// <summary>A single camera's configuration surface, abstracted so the batch orchestration is
@@ -43,6 +46,19 @@ public interface IProvisionableDevice : IDisposable
     Task SetNtpAsync(string? posixTimeZone, CancellationToken cancellationToken);
 }
 
+/// <summary>One video encoder configuration on a camera: its token, current resolution, and the
+/// resolutions the camera reports it supports.</summary>
+public sealed record VideoEncoderInfo(
+    string ConfigurationToken, OnvifResolution Current, IReadOnlyList<OnvifResolution> Supported);
+
+/// <summary>A camera's video-encoder surface, abstracted for testing. The default implementation
+/// connects over ONVIF and defers each write to the media client's capability validation.</summary>
+public interface IProvisionableVideo : IDisposable
+{
+    Task<IReadOnlyList<VideoEncoderInfo>> GetEncodersAsync(CancellationToken cancellationToken);
+    Task SetResolutionAsync(string configurationToken, OnvifResolution resolution, CancellationToken cancellationToken);
+}
+
 /// <summary>Bulk-provisions cameras over ONVIF as an iCT replacement: it derives each camera's
 /// name and hostname from the building map, applies them (plus NTP), verifies via read-back, and
 /// returns a per-camera pass/fail report instead of a silent GUI you have to trust.</summary>
@@ -51,13 +67,16 @@ public sealed class BulkProvisioningService
     private const string DeviceServicePath = "/onvif/device_service";
     private readonly SurveilConfig config;
     private readonly Func<Uri, IProvisionableDevice> deviceFactory;
+    private readonly Func<Uri, IProvisionableVideo>? videoFactory;
     private readonly Func<CameraProvisionTarget, (string Name, string? Hostname)> naming;
 
     public BulkProvisioningService(SurveilConfig config, Func<Uri, IProvisionableDevice> deviceFactory,
+        Func<Uri, IProvisionableVideo>? videoFactory = null,
         Func<CameraProvisionTarget, (string Name, string? Hostname)>? naming = null)
     {
         this.config = config;
         this.deviceFactory = deviceFactory;
+        this.videoFactory = videoFactory;
         this.naming = naming ?? DefaultNaming;
     }
 
@@ -65,7 +84,9 @@ public sealed class BulkProvisioningService
     /// given credentials (HTTP Digest).</summary>
     public BulkProvisioningService(SurveilConfig config, string username, string password,
         Func<CameraProvisionTarget, (string Name, string? Hostname)>? naming = null)
-        : this(config, endpoint => new OnvifDeviceProvisioner(new OnvifDeviceClient(endpoint, username, password)),
+        : this(config,
+            endpoint => new OnvifDeviceProvisioner(new OnvifDeviceClient(endpoint, username, password)),
+            endpoint => new OnvifVideoProvisioner(endpoint, username, password),
             naming) { }
 
     /// <summary>Builds targets from scanned addresses, using the standard device-service endpoint and
@@ -133,21 +154,40 @@ public sealed class BulkProvisioningService
         var steps = new List<string>();
         try
         {
-            using var device = deviceFactory(target.DeviceEndpoint);
-            if (options.SetName)
+            if (options.SetName || options.SetHostname || options.SetNtp)
             {
-                await device.SetNameAsync(plan.Name, cancellationToken);
-                steps.Add($"name={plan.Name}");
+                using var device = deviceFactory(target.DeviceEndpoint);
+                if (options.SetName)
+                {
+                    await device.SetNameAsync(plan.Name, cancellationToken);
+                    steps.Add($"name={plan.Name}");
+                }
+                if (options.SetHostname && plan.Hostname is not null)
+                {
+                    var reboot = await device.SetHostnameAsync(plan.Hostname, cancellationToken);
+                    steps.Add(reboot ? $"hostname={plan.Hostname} (reboot required)" : $"hostname={plan.Hostname}");
+                }
+                if (options.SetNtp)
+                {
+                    await device.SetNtpAsync(options.NtpPosixTimeZone, cancellationToken);
+                    steps.Add(options.NtpPosixTimeZone is null ? "ntp=computer-zone" : $"ntp={options.NtpPosixTimeZone}");
+                }
             }
-            if (options.SetHostname && plan.Hostname is not null)
+            if (options.TargetResolution is { } cap && videoFactory is not null)
             {
-                var reboot = await device.SetHostnameAsync(plan.Hostname, cancellationToken);
-                steps.Add(reboot ? $"hostname={plan.Hostname} (reboot required)" : $"hostname={plan.Hostname}");
-            }
-            if (options.SetNtp)
-            {
-                await device.SetNtpAsync(options.NtpPosixTimeZone, cancellationToken);
-                steps.Add(options.NtpPosixTimeZone is null ? "ntp=computer-zone" : $"ntp={options.NtpPosixTimeZone}");
+                using var video = videoFactory(target.DeviceEndpoint);
+                foreach (var encoder in await video.GetEncodersAsync(cancellationToken))
+                {
+                    var chosen = Clamp(cap, encoder.Supported);
+                    if (chosen is null) continue;
+                    if (chosen == encoder.Current)
+                    {
+                        steps.Add($"video[{encoder.ConfigurationToken}]={Format(chosen)} (already set)");
+                        continue;
+                    }
+                    await video.SetResolutionAsync(encoder.ConfigurationToken, chosen, cancellationToken);
+                    steps.Add($"video[{encoder.ConfigurationToken}]={Format(chosen)}");
+                }
             }
             return new CameraProvisionResult(target.Address, target.Building, target.Area, true, steps, null);
         }
@@ -186,6 +226,20 @@ public sealed class BulkProvisioningService
         return slug.Length > 63 ? slug[..63].Trim('-') : slug;
     }
 
+    /// <summary>Clamp policy: the largest supported resolution at or below the cap; if the camera
+    /// supports nothing that small, its smallest (best effort). Null only when none is reported.</summary>
+    internal static OnvifResolution? Clamp(OnvifResolution cap, IReadOnlyList<OnvifResolution> supported)
+    {
+        if (supported.Count == 0) return null;
+        var withinCap = supported.Where(r => r.Width <= cap.Width && r.Height <= cap.Height).ToArray();
+        return withinCap.Length > 0
+            ? withinCap.OrderByDescending(Area).First()
+            : supported.OrderBy(Area).First();
+    }
+
+    private static long Area(OnvifResolution resolution) => (long)resolution.Width * resolution.Height;
+    private static string Format(OnvifResolution resolution) => $"{resolution.Width}x{resolution.Height}";
+
     private static Uri DefaultDeviceEndpoint(IPAddress address) =>
         new UriBuilder("http", address.ToString()) { Path = DeviceServicePath }.Uri;
 
@@ -219,4 +273,41 @@ internal sealed class OnvifDeviceProvisioner(OnvifDeviceClient client) : IProvis
             : client.SetNtpTimeAsync(posixTimeZone, true, cancellationToken);
 
     public void Dispose() => client.Dispose();
+}
+
+/// <summary>Default <see cref="IProvisionableVideo"/>. Connects over ONVIF, discovers each encoder's
+/// supported resolutions, and applies changes through the media client's capability validation —
+/// which rejects any resolution the camera did not advertise.</summary>
+internal sealed class OnvifVideoProvisioner : IProvisionableVideo
+{
+    private readonly Uri deviceEndpoint;
+    private readonly OnvifCameraConnector connector;
+    private OnvifCameraConnection? connection;
+
+    public OnvifVideoProvisioner(Uri deviceEndpoint, string username, string password)
+    {
+        this.deviceEndpoint = deviceEndpoint;
+        connector = new OnvifCameraConnector(username, password);
+    }
+
+    public async Task<IReadOnlyList<VideoEncoderInfo>> GetEncodersAsync(CancellationToken cancellationToken)
+    {
+        connection ??= await connector.ConnectAsync(deviceEndpoint, null, cancellationToken);
+        var encoders = new List<VideoEncoderInfo>();
+        foreach (var config in await connection.Video.GetVideoEncoderConfigurationsAsync(cancellationToken: cancellationToken))
+        {
+            var options = await connection.Video.GetVideoEncoderConfigurationOptionsAsync(
+                config.Token, cancellationToken: cancellationToken);
+            var supported = options.SelectMany(option => option.Resolutions).Distinct().ToArray();
+            encoders.Add(new VideoEncoderInfo(config.Token, config.Resolution, supported));
+        }
+        return encoders;
+    }
+
+    public Task SetResolutionAsync(string configurationToken, OnvifResolution resolution,
+        CancellationToken cancellationToken) =>
+        connection!.Video.UpdateVideoEncoderAsync(configurationToken, resolution.Width, resolution.Height,
+            cancellationToken: cancellationToken);
+
+    public void Dispose() => connection?.Dispose();
 }
