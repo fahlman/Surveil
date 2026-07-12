@@ -41,9 +41,17 @@
                     <StackPanel Spacing="10" Padding="4,4,4,12">
                         <TextBox Header="ONVIF username" Text="{Binding Username, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
                         <PasswordBox x:Name="PasswordInput" Header="ONVIF password" PasswordChanged="OnPasswordChanged" />
-                        <TextBox Header="Targets (IPs or CIDR ranges)" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="56"
-                                 PlaceholderText="10.20.0.0/24  10.20.1.5"
-                                 Text="{Binding Targets, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                        <StackPanel Spacing="4">
+                            <TextBlock Text="Targets" Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.8" />
+                            <Border Padding="12,10" CornerRadius="6"
+                                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                                    BorderThickness="1" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}">
+                                <StackPanel Orientation="Horizontal" Spacing="10">
+                                    <FontIcon Glyph="&#xE722;" FontFamily="Segoe MDL2 Assets" FontSize="16" Opacity="0.7" VerticalAlignment="Center" />
+                                    <TextBlock Text="{Binding SelectedCameraSummary}" VerticalAlignment="Center" TextWrapping="Wrap" />
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
 
                         <muxc:Expander Header="Identity" IsExpanded="True" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
                             <StackPanel Spacing="8">
