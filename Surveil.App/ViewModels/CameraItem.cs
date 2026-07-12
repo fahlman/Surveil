@@ -11,12 +11,20 @@ public sealed partial class CameraItem : ObservableObject
 {
     public CameraStatus Camera { get; }
 
+    /// <summary>The device-service URL this camera advertised via WS-Discovery, if known. Provisioning
+    /// connects here rather than assuming the standard path. Null for scanned / saved cameras.</summary>
+    public Uri? Endpoint { get; }
+
     [ObservableProperty] private bool isSelected;
 
     /// <summary>Raised when the provision checkbox toggles, so the owner can refresh the target set.</summary>
     public Action? SelectionChanged { get; set; }
 
-    public CameraItem(CameraStatus camera) => Camera = camera;
+    public CameraItem(CameraStatus camera, Uri? endpoint = null)
+    {
+        Camera = camera;
+        Endpoint = endpoint;
+    }
 
     public string Ip => Camera.Ip;
     public string StatusText => Camera.Status;

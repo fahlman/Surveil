@@ -19,6 +19,29 @@ public sealed class CoreTests
     }
 
     [Fact]
+    public void TargetsFromHonorsAdvertisedEndpointAndFallsBackToStandardPath()
+    {
+        var config = new SurveilConfig
+        {
+            Sites = [new Site { Name = "Kettler Hall", Ranges = [new NetworkRange { Name = "Ground", Cidr = "10.25.69.0/24" }] }],
+        };
+        var service = new BulkProvisioningService(config, "admin", "pw");
+
+        var advertised = new Uri("http://10.25.69.14:8000/onvif/device_service");
+        var targets = service.TargetsFrom(new (IPAddress, Uri?)[]
+        {
+            (IPAddress.Parse("10.25.69.14"), advertised),  // advertised endpoint is used verbatim
+            (IPAddress.Parse("10.25.69.20"), null),         // null falls back to the standard path
+        });
+
+        Assert.Equal(2, targets.Count);
+        Assert.Equal(advertised, targets[0].DeviceEndpoint);
+        Assert.Equal("Kettler Hall", targets[0].Site);      // still located in the site map
+        Assert.Equal("Ground", targets[0].Area);
+        Assert.Equal(new Uri("http://10.25.69.20/onvif/device_service"), targets[1].DeviceEndpoint);
+    }
+
+    [Fact]
     public async Task DeviceManagementSetsAndVerifiesHostnameWithoutDhcpOverride()
     {
         var handler = new SoapHandler(request => request.Contains("SetHostnameFromDHCP") ? HostnameDhcpResponse :

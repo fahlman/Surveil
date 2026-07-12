@@ -137,6 +137,11 @@ public sealed class BulkProvisioningService
         responders.Select(responder => Locate(responder.Ip,
             EndpointFromXAddresses(responder.XAddresses) ?? DefaultDeviceEndpoint(responder.Ip))).ToArray();
 
+    /// <summary>Builds targets from (address, advertised-endpoint) pairs — the endpoint each camera
+    /// reported via WS-Discovery. A null endpoint falls back to the standard device-service path.</summary>
+    public IReadOnlyList<CameraProvisionTarget> TargetsFrom(IEnumerable<(IPAddress Address, Uri? Endpoint)> items) =>
+        items.Select(item => Locate(item.Address, item.Endpoint ?? DefaultDeviceEndpoint(item.Address))).ToArray();
+
     /// <summary>Derives the planned name/hostname for each target — call this to preview a batch
     /// before applying it.</summary>
     public IReadOnlyList<CameraProvisionPlan> Plan(IEnumerable<CameraProvisionTarget> targets,
