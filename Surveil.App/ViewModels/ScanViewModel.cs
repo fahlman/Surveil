@@ -28,6 +28,14 @@ public sealed partial class ScanViewModel : ObservableObject
 
     public ObservableCollection<CameraStatus> Results { get; } = new();
 
+    public ScanViewModel()
+    {
+        var settings = session.Settings;
+        port = settings.DefaultPort;
+        timeoutMs = settings.DefaultTimeoutMs;
+        concurrency = settings.DefaultConcurrency;
+    }
+
     [RelayCommand]
     private async Task ScanAsync()
     {

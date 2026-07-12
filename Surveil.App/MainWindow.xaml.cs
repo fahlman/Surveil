@@ -32,6 +32,7 @@ public sealed partial class MainWindow : Window
             "scan" => typeof(ScanPage),
             "discover" => typeof(DiscoverPage),
             "provision" => typeof(ProvisionPage),
+            "settings" => typeof(SettingsPage),
             _ => typeof(BuildingsPage),
         };
 

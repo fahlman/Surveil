@@ -21,6 +21,8 @@ public sealed partial class DiscoverViewModel : ObservableObject
 
     public ObservableCollection<DiscoveryCamera> Results { get; } = new();
 
+    public DiscoverViewModel() => timeoutMs = session.Settings.DiscoverTimeoutMs;
+
     [RelayCommand]
     private async Task DiscoverAsync()
     {

@@ -11,19 +11,34 @@ public sealed class AppSession
 
     public JsonStore Store { get; }
     public SurveilService Service { get; }
+    public SettingsStore SettingsStore { get; }
+
+    /// <summary>Persisted user defaults (port, timeouts, default username, …). Never the password.</summary>
+    public AppSettings Settings { get; private set; }
 
     /// <summary>The building map, kept in memory so every page sees the same edits. Reloaded
     /// from disk on startup; persisted explicitly from the Buildings page.</summary>
     public SurveilConfig Config { get; set; } = new();
 
     /// <summary>ONVIF credentials for provisioning and camera connections (in-memory only).</summary>
-    public string Username { get; set; } = "admin";
+    public string Username { get; set; }
     public string Password { get; set; } = "";
 
     private AppSession()
     {
         Store = new JsonStore();
         Service = new SurveilService(Store);
+        SettingsStore = new SettingsStore(Store.DataDirectory);
+        Settings = SettingsStore.Load();
+        Username = Settings.DefaultUsername;
+    }
+
+    /// <summary>Persist new settings and apply the ones that seed live state (the default username).</summary>
+    public void SaveSettings(AppSettings settings)
+    {
+        SettingsStore.Save(settings);
+        Settings = settings;
+        Username = settings.DefaultUsername;
     }
 
     public string DataDirectory => Store.DataDirectory;

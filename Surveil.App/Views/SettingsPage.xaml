@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Page
+    x:Class="Surveil.App.Views.SettingsPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:muxc="using:Microsoft.UI.Xaml.Controls"
+    xmlns:conv="using:Surveil.App.Converters"
+    NavigationCacheMode="Required">
+
+    <Page.Resources>
+        <conv:StringToBoolConverter x:Key="StringToBool" />
+        <conv:ErrorToSeverityConverter x:Key="ErrorToSeverity" />
+    </Page.Resources>
+
+    <ScrollViewer Padding="24">
+        <StackPanel Spacing="14" MaxWidth="620" HorizontalAlignment="Left">
+            <TextBlock Text="Settings" Style="{StaticResource TitleTextBlockStyle}" />
+            <TextBlock Text="Defaults applied to new pages. Saved to settings.json in the data folder. The ONVIF password is never stored."
+                       Opacity="0.7" TextWrapping="Wrap" Style="{StaticResource CaptionTextBlockStyle}" />
+
+            <muxc:Expander Header="Credentials &amp; provisioning" IsExpanded="True" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
+                <StackPanel Spacing="10">
+                    <TextBox Header="Default ONVIF username" Text="{Binding DefaultUsername, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                    <TextBox Header="Preferred codecs (first supported wins)" Text="{Binding PreferredCodecs, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                    <ToggleSwitch Header="Dry run by default" IsOn="{Binding DryRunByDefault, Mode=TwoWay}" OnContent="On" OffContent="Off" />
+                </StackPanel>
+            </muxc:Expander>
+
+            <muxc:Expander Header="Scan &amp; discovery" IsExpanded="True" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
+                <StackPanel Spacing="10">
+                    <muxc:NumberBox Header="Default port" Value="{Binding DefaultPort, Mode=TwoWay}" Minimum="1" Maximum="65535" SpinButtonPlacementMode="Compact" />
+                    <muxc:NumberBox Header="Default scan timeout (ms)" Value="{Binding DefaultTimeoutMs, Mode=TwoWay}" Minimum="50" Maximum="10000" SpinButtonPlacementMode="Compact" />
+                    <muxc:NumberBox Header="Default concurrency" Value="{Binding DefaultConcurrency, Mode=TwoWay}" Minimum="1" Maximum="1024" SpinButtonPlacementMode="Compact" />
+                    <muxc:NumberBox Header="Discovery timeout (ms)" Value="{Binding DiscoverTimeoutMs, Mode=TwoWay}" Minimum="500" Maximum="15000" SpinButtonPlacementMode="Compact" />
+                </StackPanel>
+            </muxc:Expander>
+
+            <StackPanel Orientation="Horizontal" Spacing="8">
+                <Button Content="Save" Style="{StaticResource AccentButtonStyle}" Command="{Binding SaveCommand}" />
+                <Button Content="Open data folder" Command="{Binding OpenDataFolderCommand}" />
+            </StackPanel>
+
+            <TextBlock Text="{Binding DataDirectory}" Opacity="0.6" IsTextSelectionEnabled="True" Style="{StaticResource CaptionTextBlockStyle}" />
+
+            <muxc:InfoBar
+                IsOpen="{Binding StatusMessage, Converter={StaticResource StringToBool}}"
+                Severity="{Binding HasError, Converter={StaticResource ErrorToSeverity}}"
+                Message="{Binding StatusMessage}" IsClosable="True" />
+        </StackPanel>
+    </ScrollViewer>
+</Page>
