@@ -58,10 +58,11 @@ public sealed class AppSession
     /// <summary>Raised when a page asks to open the Provision drawer (e.g. "Send to Provision").</summary>
     public event Action? ProvisionDrawerRequested;
 
-    /// <summary>Load addresses into the Provision panel and ask the shell to open the drawer.</summary>
+    /// <summary>Load addresses into the Provision panel and open it.</summary>
     public void RequestProvision(string targets)
     {
         Provision.Targets = targets;
+        Provision.IsPaneOpen = true;
         ProvisionDrawerRequested?.Invoke();
     }
 }
