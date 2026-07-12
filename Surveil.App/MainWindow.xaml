@@ -42,6 +42,14 @@
                 </muxc:NavigationViewItem>
             </muxc:NavigationView.MenuItems>
 
+            <muxc:NavigationView.FooterMenuItems>
+                <muxc:NavigationViewItem Content="Settings" Tag="settings">
+                    <muxc:NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE713;" />
+                    </muxc:NavigationViewItem.Icon>
+                </muxc:NavigationViewItem>
+            </muxc:NavigationView.FooterMenuItems>
+
             <Frame x:Name="ContentFrame" />
         </muxc:NavigationView>
     </Grid>

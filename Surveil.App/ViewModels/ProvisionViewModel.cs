@@ -43,6 +43,8 @@ public sealed partial class ProvisionViewModel : ObservableObject
     {
         username = session.Username;
         password = session.Password;
+        preferredCodecs = session.Settings.PreferredCodecs;
+        dryRun = session.Settings.DryRunByDefault;
     }
 
     /// <summary>Preview the derived name/hostname for each in-range camera without touching it.</summary>
