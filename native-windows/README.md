@@ -1,8 +1,8 @@
 # Surveil for Windows
 
-This directory is the beginning of the native C# port. `Surveil.Core` contains
-platform-independent domain logic that will be consumed by a WinUI 3 desktop
-application. The existing Tauri app remains available as the working prototype.
+This directory is the native C# implementation of Surveil. `Surveil.Core`
+contains platform-independent domain logic that will be consumed by a WinUI 3
+desktop application.
 
 Implemented so far:
 
