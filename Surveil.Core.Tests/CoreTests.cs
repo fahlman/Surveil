@@ -199,11 +199,11 @@ public sealed class CoreTests
         try
         {
             var store = new JsonStore(directory);
-            var config = new SurveilConfig { Buildings = [new Building {
+            var config = new SurveilConfig { Sites = [new Site {
                 Name = "Example", Ranges = [new NetworkRange { Name = "Main", Cidr = "192.168.10.0/24" }]
             }]};
             await store.SaveConfigAsync(config);
-            Assert.Equal("Example", (await store.LoadConfigAsync()).Buildings[0].Name);
+            Assert.Equal("Example", (await store.LoadConfigAsync()).Sites[0].Name);
             await store.SaveInventoryAsync(new Inventory { LastScan = 123, Cameras = [Record("192.168.10.5")] });
             Assert.Equal((ulong)123, (await store.LoadInventoryAsync()).LastScan);
             Assert.DoesNotContain(Directory.EnumerateFiles(directory).Select(Path.GetFileName),
@@ -248,17 +248,17 @@ public sealed class CoreTests
             var path = Path.Combine(directory, JsonStore.ConfigFileName);
             await File.WriteAllTextAsync(path,
                 "{\"buildings\":[{\"name\":\"Hall\",\"ranges\":[\"10.20.68.0/24\"],\"notes\":\"\"}]}");
-            Assert.Equal("Basement", (await store.LoadConfigAsync()).Buildings[0].Ranges[0].Name);
+            Assert.Equal("Basement", (await store.LoadConfigAsync()).Sites[0].Ranges[0].Name);
 
             await File.WriteAllTextAsync(path,
                 "[{\"octet\":20,\"name\":\"Hall\",\"basement\":false,\"ground\":true,\"floors\":2}]");
-            Assert.Equal(3, (await store.LoadConfigAsync()).Buildings[0].Ranges.Count);
+            Assert.Equal(3, (await store.LoadConfigAsync()).Sites[0].Ranges.Count);
 
             await File.WriteAllTextAsync(path,
                 "{\"network\":{\"octets\":[\"10\",\"building\",\"level\",\"host\"]}," +
                 "\"levels\":[{\"label\":\"Second Floor\",\"code\":62}]," +
                 "\"buildings\":[{\"octet\":20,\"name\":\"Hall\",\"levels\":[\"Second Floor\"]}],\"subnets\":[]}");
-            Assert.Equal("10.20.62.0/24", (await store.LoadConfigAsync()).Buildings[0].Ranges[0].Cidr);
+            Assert.Equal("10.20.62.0/24", (await store.LoadConfigAsync()).Sites[0].Ranges[0].Cidr);
         }
         finally
         {
@@ -273,16 +273,16 @@ public sealed class CoreTests
         try
         {
             var store = new JsonStore(directory);
-            await store.SaveConfigAsync(new SurveilConfig { Buildings = [new Building {
+            await store.SaveConfigAsync(new SurveilConfig { Sites = [new Site {
                 Name = "Hall", Ranges = [new NetworkRange { Name = "Main", Cidr = "192.168.10.0/30" }]
             }]});
             var service = new SurveilService(store, new FakeScanner([IPAddress.Parse("192.168.10.1")]),
                 new FakeDiscovery([new WsDiscoveryResponder(IPAddress.Parse("192.168.10.1"), "http://camera/onvif")]));
             var statuses = await service.ScanAsync(["192.168.10.0/30"], 80);
             Assert.Equal("new", statuses.Single().Status);
-            Assert.Equal("Hall", statuses.Single().Building);
+            Assert.Equal("Hall", statuses.Single().Site);
             var discovered = await service.DiscoverAsync();
-            Assert.Equal("Hall", discovered.Cameras.Single().Building);
+            Assert.Equal("Hall", discovered.Cameras.Single().Site);
             Assert.Equal(1, discovered.DistinctSubnets);
         }
         finally
@@ -301,7 +301,7 @@ public sealed class CoreTests
     [Fact]
     public void ValidatesOverlappingRanges()
     {
-        var config = new SurveilConfig { Buildings = [new Building {
+        var config = new SurveilConfig { Sites = [new Site {
             Name = "Example", Ranges = [
                 new NetworkRange { Name = "One", Cidr = "192.168.10.0/24" },
                 new NetworkRange { Name = "Two", Cidr = "192.168.10.0/25" }
@@ -311,9 +311,9 @@ public sealed class CoreTests
     }
 
     [Fact]
-    public void LocatesBuildingAndArea()
+    public void LocatesSiteAndArea()
     {
-        var config = new SurveilConfig { Buildings = [new Building {
+        var config = new SurveilConfig { Sites = [new Site {
             Name = "Example Hall", Ranges = [new NetworkRange { Name = "Second Floor", Cidr = "10.200.62.0/24" }]
         }]};
         Assert.Equal(("Example Hall", "Second Floor"), NetworkRanges.Locate(config, IPAddress.Parse("10.200.62.137")));
@@ -337,9 +337,9 @@ public sealed class CoreTests
     }
 
     private static CameraRecord Record(string ip) => new() {
-        Ip = ip, Building = "Hall", Area = "First Floor", FirstSeen = 100, LastSeen = 100
+        Ip = ip, Site = "Hall", Area = "First Floor", FirstSeen = 100, LastSeen = 100
     };
-    private static FoundCamera Found(string ip) => new() { Ip = ip, Building = "Hall", Area = "First Floor" };
+    private static FoundCamera Found(string ip) => new() { Ip = ip, Site = "Hall", Area = "First Floor" };
 
     private sealed class InlineProgress<T>(Action<T> report) : IProgress<T>
     {

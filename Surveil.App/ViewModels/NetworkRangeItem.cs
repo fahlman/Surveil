@@ -5,7 +5,7 @@ using Surveil.Core;
 
 namespace Surveil.App.ViewModels;
 
-/// <summary>A CIDR range node under a building. Locks after creation, carries a selection checkbox
+/// <summary>A CIDR range node under a site. Locks after creation, carries a selection checkbox
 /// for scanning, and holds the cameras found in it by the most recent scan.</summary>
 public sealed partial class NetworkRangeItem : ObservableObject
 {
@@ -14,13 +14,13 @@ public sealed partial class NetworkRangeItem : ObservableObject
     [ObservableProperty] private bool isEditing;
     [ObservableProperty] private bool isSelected;
 
-    /// <summary>The building this range belongs to (for add-sibling, remove, and selection roll-up).</summary>
-    public BuildingItem? Parent { get; set; }
+    /// <summary>The site this range belongs to (for add-sibling, remove, and selection roll-up).</summary>
+    public SiteItem? Parent { get; set; }
 
     /// <summary>Cameras found in this CIDR by the most recent scan.</summary>
     public ObservableCollection<CameraStatus> Cameras { get; } = new();
 
-    public NetworkRangeItem(NetworkRange range, BuildingItem? parent = null, bool editing = false)
+    public NetworkRangeItem(NetworkRange range, SiteItem? parent = null, bool editing = false)
     {
         name = range.Name;
         cidr = range.Cidr;
@@ -29,7 +29,7 @@ public sealed partial class NetworkRangeItem : ObservableObject
     }
 
     /// <summary>A brand-new range starts editable so it can be filled in.</summary>
-    public NetworkRangeItem(BuildingItem? parent = null)
+    public NetworkRangeItem(SiteItem? parent = null)
     {
         name = "";
         cidr = "";

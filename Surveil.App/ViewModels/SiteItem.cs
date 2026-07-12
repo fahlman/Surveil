@@ -5,9 +5,9 @@ using Surveil.Core;
 
 namespace Surveil.App.ViewModels;
 
-/// <summary>A building node: parent of its CIDR ranges. Expands/collapses via a chevron, name locks
+/// <summary>A site node: parent of its CIDR ranges. Expands/collapses via a chevron, name locks
 /// after creation, and its (tri-state) checkbox selects/deselects all of its CIDRs.</summary>
-public sealed partial class BuildingItem : ObservableObject
+public sealed partial class SiteItem : ObservableObject
 {
     [ObservableProperty] private string name;
     [ObservableProperty] private string notes;
@@ -19,23 +19,23 @@ public sealed partial class BuildingItem : ObservableObject
 
     private bool syncing;
 
-    /// <summary>The CIDR ranges nested under this building.</summary>
+    /// <summary>The CIDR ranges nested under this site.</summary>
     public ObservableCollection<NetworkRangeItem> Children { get; } = new();
 
-    /// <summary>The collection this building lives in (for self-removal / add-sibling).</summary>
-    public ObservableCollection<BuildingItem>? Owner { get; set; }
+    /// <summary>The collection this site lives in (for self-removal / add-sibling).</summary>
+    public ObservableCollection<SiteItem>? Owner { get; set; }
 
-    public BuildingItem(Building building, ObservableCollection<BuildingItem>? owner = null)
+    public SiteItem(Site site, ObservableCollection<SiteItem>? owner = null)
     {
-        name = building.Name;
-        notes = building.Notes;
+        name = site.Name;
+        notes = site.Notes;
         isEditing = false;
         Owner = owner;
-        foreach (var range in building.Ranges) Children.Add(new NetworkRangeItem(range, this));
+        foreach (var range in site.Ranges) Children.Add(new NetworkRangeItem(range, this));
     }
 
-    /// <summary>A brand-new building starts editable, expanded, and with one empty CIDR to fill in.</summary>
-    public BuildingItem(string name, ObservableCollection<BuildingItem>? owner = null)
+    /// <summary>A brand-new site starts editable, expanded, and with one empty CIDR to fill in.</summary>
+    public SiteItem(string name, ObservableCollection<SiteItem>? owner = null)
     {
         this.name = name;
         notes = "";
@@ -44,14 +44,14 @@ public sealed partial class BuildingItem : ObservableObject
         Children.Add(new NetworkRangeItem(this));
     }
 
-    public Building ToBuilding() => new()
+    public Site ToSite() => new()
     {
         Name = Name,
         Notes = Notes,
         Ranges = Children.Select(child => child.ToRange()).ToList(),
     };
 
-    // Checking the building selects/deselects every CIDR; a child changing rolls the state back up.
+    // Checking the site selects/deselects every CIDR; a child changing rolls the state back up.
     partial void OnIsSelectedChanged(bool? value)
     {
         if (syncing || value is not bool all) return;
@@ -60,7 +60,7 @@ public sealed partial class BuildingItem : ObservableObject
         syncing = false;
     }
 
-    /// <summary>Recompute this building's checkbox from its children (all / none / some).</summary>
+    /// <summary>Recompute this site's checkbox from its children (all / none / some).</summary>
     public void RefreshSelection()
     {
         if (syncing) return;
@@ -81,20 +81,20 @@ public sealed partial class BuildingItem : ObservableObject
     {
         if (Owner is null) return;
         Owner.Remove(this);
-        // Never leave the map with no buildings — recreate an empty one.
-        if (Owner.Count == 0) Owner.Add(new BuildingItem("Building 1", Owner));
+        // Never leave the map with no sites — recreate an empty one.
+        if (Owner.Count == 0) Owner.Add(new SiteItem("Site 1", Owner));
     }
 
-    /// <summary>Add a new building right after this one (the building row's + button).</summary>
+    /// <summary>Add a new site right after this one (the site row's + button).</summary>
     [RelayCommand]
-    private void AddBuilding()
+    private void AddSite()
     {
         if (Owner is null) return;
         var index = Owner.IndexOf(this);
-        Owner.Insert(index + 1, new BuildingItem($"Building {Owner.Count + 1}", Owner));
+        Owner.Insert(index + 1, new SiteItem($"Site {Owner.Count + 1}", Owner));
     }
 
-    /// <summary>Add a CIDR range under this building (used by the in-building "Add range").</summary>
+    /// <summary>Add a CIDR range under this site (used by the in-site "Add range").</summary>
     [RelayCommand]
     private void AddRange()
     {

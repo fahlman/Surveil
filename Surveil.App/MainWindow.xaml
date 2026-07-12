@@ -42,7 +42,7 @@
                 Loaded="Nav_Loaded">
 
                 <muxc:NavigationView.MenuItems>
-                    <muxc:NavigationViewItem Content="Buildings" Tag="buildings">
+                    <muxc:NavigationViewItem Content="Sites" Tag="sites">
                         <muxc:NavigationViewItem.Icon>
                             <FontIcon Glyph="&#xE80F;" />
                         </muxc:NavigationViewItem.Icon>

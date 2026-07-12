@@ -5,14 +5,14 @@ using Windows.Storage.Pickers;
 
 namespace Surveil.App.Views;
 
-public sealed partial class BuildingsPage : Page
+public sealed partial class SitesPage : Page
 {
-    private BuildingsViewModel Vm => (BuildingsViewModel)DataContext;
+    private SitesViewModel Vm => (SitesViewModel)DataContext;
 
-    public BuildingsPage()
+    public SitesPage()
     {
         InitializeComponent();
-        DataContext = new BuildingsViewModel();
+        DataContext = new SitesViewModel();
     }
 
     private async void OnImportClick(object sender, RoutedEventArgs e)
@@ -29,7 +29,7 @@ public sealed partial class BuildingsPage : Page
         var picker = new FileSavePicker
         {
             SuggestedStartLocation = PickerLocationId.DocumentsLibrary,
-            SuggestedFileName = "buildings",
+            SuggestedFileName = "sites",
         };
         picker.FileTypeChoices.Add("JSON", new List<string> { ".json" });
         InitializeWithWindow(picker);

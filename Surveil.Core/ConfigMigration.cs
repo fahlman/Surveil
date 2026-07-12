@@ -11,7 +11,23 @@ internal static class ConfigMigration
         if (root.ValueKind == JsonValueKind.Array) return MigrateOriginalArray(root);
         if (root.TryGetProperty("network", out _)) return MigrateOctetTemplate(root);
         if (RangesAreStrings(root)) return MigrateBareRanges(root);
+        // Legacy "buildings" key (object ranges) → the current "sites" schema.
+        if (root.TryGetProperty("buildings", out _)) return MigrateCurrentBuildings(root);
         return JsonSerializer.Deserialize<SurveilConfig>(json, options) ?? new SurveilConfig();
+    }
+
+    private static SurveilConfig MigrateCurrentBuildings(JsonElement root)
+    {
+        var config = new SurveilConfig();
+        foreach (var item in root.GetProperty("buildings").EnumerateArray())
+        {
+            var site = new Site { Name = Text(item, "name"), Notes = Text(item, "notes") };
+            if (item.TryGetProperty("ranges", out var ranges))
+                site.Ranges.AddRange(ranges.EnumerateArray()
+                    .Select(range => new NetworkRange { Name = Text(range, "name"), Cidr = Text(range, "cidr") }));
+            config.Sites.Add(site);
+        }
+        return config;
     }
 
     private static bool RangesAreStrings(JsonElement root)
@@ -28,7 +44,7 @@ internal static class ConfigMigration
         var config = new SurveilConfig();
         foreach (var item in root.GetProperty("buildings").EnumerateArray())
         {
-            var building = new Building {
+            var building = new Site {
                 Name = Text(item, "name"), Notes = Text(item, "notes")
             };
             if (item.TryGetProperty("ranges", out var ranges))
@@ -36,7 +52,7 @@ internal static class ConfigMigration
                     var cidr = range.GetString() ?? "";
                     return new NetworkRange { Name = FloorNameFromCidr(cidr), Cidr = cidr };
                 }));
-            config.Buildings.Add(building);
+            config.Sites.Add(building);
         }
         return config;
     }
@@ -47,12 +63,12 @@ internal static class ConfigMigration
         foreach (var item in root.EnumerateArray())
         {
             var octet = item.GetProperty("octet").GetInt32();
-            var building = new Building { Name = Text(item, "name"), Notes = Text(item, "notes") };
+            var building = new Site { Name = Text(item, "name"), Notes = Text(item, "notes") };
             if (Boolean(item, "basement")) building.Ranges.Add(FloorRange(octet, 68));
             if (Boolean(item, "ground")) building.Ranges.Add(FloorRange(octet, 69));
             var floors = item.TryGetProperty("floors", out var value) ? value.GetInt32() : 0;
             for (var floor = 1; floor <= floors; floor++) building.Ranges.Add(FloorRange(octet, 60 + floor));
-            config.Buildings.Add(building);
+            config.Sites.Add(building);
         }
         return config;
     }
@@ -67,15 +83,15 @@ internal static class ConfigMigration
         foreach (var item in root.GetProperty("buildings").EnumerateArray())
         {
             var octet = item.GetProperty("octet").GetInt32();
-            var building = new Building { Name = Text(item, "name"), Notes = Text(item, "notes") };
+            var building = new Site { Name = Text(item, "name"), Notes = Text(item, "notes") };
             if (item.TryGetProperty("levels", out var levels))
                 foreach (var level in levels.EnumerateArray().Select(value => value.GetString() ?? ""))
                     if (codes.TryGetValue(level, out var code))
                         building.Ranges.Add(new NetworkRange { Name = level, Cidr = ExpandTokens(tokens, octet, code) });
-            config.Buildings.Add(building);
+            config.Sites.Add(building);
         }
         if (root.TryGetProperty("subnets", out var subnets) && subnets.GetArrayLength() > 0)
-            config.Buildings.Add(new Building { Name = "Subnets", Ranges = subnets.EnumerateArray()
+            config.Sites.Add(new Site { Name = "Subnets", Ranges = subnets.EnumerateArray()
                 .Select(value => new NetworkRange { Cidr = value.GetString() ?? "" }).ToList() });
         return config;
     }

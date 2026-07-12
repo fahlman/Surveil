@@ -4,7 +4,9 @@ namespace Surveil.Core;
 
 public sealed class JsonStore
 {
-    public const string ConfigFileName = "buildings.json";
+    public const string ConfigFileName = "sites.json";
+    /// <summary>Older builds stored the map here; it's loaded and migrated when sites.json is absent.</summary>
+    public const string LegacyConfigFileName = "buildings.json";
     public const string InventoryFileName = "cameras.json";
 
     internal static readonly JsonSerializerOptions Options = new() {
@@ -24,7 +26,12 @@ public sealed class JsonStore
     public async Task<SurveilConfig> LoadConfigAsync(CancellationToken cancellationToken = default)
     {
         var path = Path.Combine(DataDirectory, ConfigFileName);
-        if (!File.Exists(path)) return new SurveilConfig();
+        if (!File.Exists(path))
+        {
+            var legacy = Path.Combine(DataDirectory, LegacyConfigFileName);
+            if (!File.Exists(legacy)) return new SurveilConfig();
+            path = legacy;  // load the old buildings.json; it saves to sites.json next time
+        }
         var json = await File.ReadAllTextAsync(path, cancellationToken);
         return ConfigMigration.Deserialize(json, Options);
     }

@@ -15,7 +15,7 @@ public sealed partial class MainWindow : Window
 
     private async void Nav_Loaded(object sender, RoutedEventArgs e)
     {
-        // Load the building map once up front so every page starts from the same config.
+        // Load the site map once up front so every page starts from the same config.
         try { await AppSession.Current.LoadConfigAsync(); }
         catch { /* first run / missing file: keep the empty default config */ }
 
@@ -28,9 +28,9 @@ public sealed partial class MainWindow : Window
 
         var page = (item.Tag as string) switch
         {
-            "buildings" => typeof(BuildingsPage),
+            "sites" => typeof(SitesPage),
             "settings" => typeof(SettingsPage),
-            _ => typeof(BuildingsPage),
+            _ => typeof(SitesPage),
         };
 
         ContentFrame.Navigate(page);
