@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Page
+    x:Class="Surveil.App.Views.DiscoverPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:muxc="using:Microsoft.UI.Xaml.Controls"
+    xmlns:conv="using:Surveil.App.Converters"
+    xmlns:core="using:Surveil.Core">
+
+    <Page.Resources>
+        <conv:StringToBoolConverter x:Key="StringToBool" />
+        <conv:ErrorToSeverityConverter x:Key="ErrorToSeverity" />
+        <conv:InverseBoolConverter x:Key="InverseBool" />
+        <conv:BoolToVisibilityConverter x:Key="BoolToVis" />
+    </Page.Resources>
+
+    <Grid Padding="24" RowSpacing="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <StackPanel Grid.Row="0" Spacing="4">
+            <TextBlock Text="Discover" Style="{StaticResource TitleTextBlockStyle}" />
+            <TextBlock Text="WS-Discovery multicast on the local subnet." Opacity="0.7" Style="{StaticResource CaptionTextBlockStyle}" />
+        </StackPanel>
+
+        <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+            <muxc:NumberBox Header="Timeout (ms)" Value="{Binding TimeoutMs, Mode=TwoWay}" Minimum="500" Maximum="15000" SpinButtonPlacementMode="Compact" Width="140" />
+            <Button Content="Discover" Style="{StaticResource AccentButtonStyle}" VerticalAlignment="Bottom"
+                    Command="{Binding DiscoverCommand}"
+                    IsEnabled="{Binding IsDiscovering, Converter={StaticResource InverseBool}}" />
+            <Button Content="Cancel" VerticalAlignment="Bottom" Command="{Binding CancelCommand}" IsEnabled="{Binding IsDiscovering}" />
+            <muxc:ProgressRing VerticalAlignment="Bottom" Width="24" Height="24"
+                    IsActive="{Binding IsDiscovering}"
+                    Visibility="{Binding IsDiscovering, Converter={StaticResource BoolToVis}}" />
+            <TextBlock VerticalAlignment="Bottom" Margin="8,0,0,6" Opacity="0.8" Text="{Binding Summary}" />
+        </StackPanel>
+
+        <muxc:InfoBar Grid.Row="2"
+            IsOpen="{Binding StatusMessage, Converter={StaticResource StringToBool}}"
+            Severity="{Binding HasError, Converter={StaticResource ErrorToSeverity}}"
+            Message="{Binding StatusMessage}" IsClosable="True" />
+
+        <Grid Grid.Row="4" RowSpacing="4">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+
+            <Grid Grid.Row="0" Padding="12,4" ColumnSpacing="8">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="150" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="2*" />
+                </Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Text="IP" FontWeight="SemiBold" />
+                <TextBlock Grid.Column="1" Text="Building" FontWeight="SemiBold" />
+                <TextBlock Grid.Column="2" Text="Area" FontWeight="SemiBold" />
+                <TextBlock Grid.Column="3" Text="Service address" FontWeight="SemiBold" />
+            </Grid>
+
+            <ListView Grid.Row="1" ItemsSource="{Binding Results}"
+                      BorderThickness="1" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" CornerRadius="6">
+                <ListView.ItemContainerStyle>
+                    <Style TargetType="ListViewItem">
+                        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                    </Style>
+                </ListView.ItemContainerStyle>
+                <ListView.ItemTemplate>
+                    <DataTemplate x:DataType="core:DiscoveryCamera">
+                        <Grid ColumnSpacing="8" Padding="0,4">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="150" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="2*" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="{x:Bind Ip}" FontFamily="Consolas" />
+                            <TextBlock Grid.Column="1" Text="{x:Bind Building}" />
+                            <TextBlock Grid.Column="2" Text="{x:Bind Area}" />
+                            <TextBlock Grid.Column="3" Text="{x:Bind XAddresses}" TextTrimming="CharacterEllipsis"
+                                       ToolTipService.ToolTip="{x:Bind XAddresses}" />
+                        </Grid>
+                    </DataTemplate>
+                </ListView.ItemTemplate>
+            </ListView>
+        </Grid>
+    </Grid>
+</Page>

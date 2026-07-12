@@ -1,0 +1,111 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Page
+    x:Class="Surveil.App.Views.BuildingsPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:muxc="using:Microsoft.UI.Xaml.Controls"
+    xmlns:conv="using:Surveil.App.Converters"
+    xmlns:core="using:Surveil.Core">
+
+    <Page.Resources>
+        <conv:NullToVisibilityConverter x:Key="NullToVis" />
+        <conv:StringToBoolConverter x:Key="StringToBool" />
+        <conv:ErrorToSeverityConverter x:Key="ErrorToSeverity" />
+    </Page.Resources>
+
+    <Grid Padding="24" RowSpacing="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <StackPanel Grid.Row="0" Spacing="4">
+            <TextBlock Text="Building map" Style="{StaticResource TitleTextBlockStyle}" />
+            <TextBlock Text="{Binding DataDirectory}" Opacity="0.7" Style="{StaticResource CaptionTextBlockStyle}" />
+        </StackPanel>
+
+        <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="8">
+            <Button Content="Save" Style="{StaticResource AccentButtonStyle}" Command="{Binding SaveCommand}" />
+            <Button Content="Import…" Click="OnImportClick" />
+            <Button Content="Export…" Click="OnExportClick" />
+        </StackPanel>
+
+        <muxc:InfoBar Grid.Row="2"
+            IsOpen="{Binding StatusMessage, Converter={StaticResource StringToBool}}"
+            Severity="{Binding HasError, Converter={StaticResource ErrorToSeverity}}"
+            Message="{Binding StatusMessage}"
+            IsClosable="True" />
+
+        <Grid Grid.Row="3" ColumnSpacing="16">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="280" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+
+            <!-- Buildings list -->
+            <Grid Grid.Column="0" RowSpacing="8">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+                <ListView Grid.Row="0"
+                    ItemsSource="{Binding Buildings}"
+                    SelectedItem="{Binding SelectedBuilding, Mode=TwoWay}"
+                    BorderThickness="1" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                    CornerRadius="6">
+                    <ListView.ItemTemplate>
+                        <DataTemplate x:DataType="core:Building">
+                            <TextBlock Text="{x:Bind Name, Mode=OneWay}" />
+                        </DataTemplate>
+                    </ListView.ItemTemplate>
+                </ListView>
+                <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="8">
+                    <Button Content="Add building" Command="{Binding AddBuildingCommand}" />
+                    <Button Content="Remove" Command="{Binding RemoveBuildingCommand}" />
+                </StackPanel>
+            </Grid>
+
+            <!-- Selected building editor -->
+            <ScrollViewer Grid.Column="1"
+                Visibility="{Binding SelectedBuilding, Converter={StaticResource NullToVis}}">
+                <StackPanel Spacing="12">
+                    <TextBox Header="Name" Text="{Binding SelectedBuilding.Name, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                    <TextBox Header="Notes" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="60"
+                             Text="{Binding SelectedBuilding.Notes, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+
+                    <Grid>
+                        <TextBlock Text="Network ranges" Style="{StaticResource SubtitleTextBlockStyle}" VerticalAlignment="Center" />
+                        <Button Content="Add range" HorizontalAlignment="Right" Command="{Binding AddRangeCommand}" />
+                    </Grid>
+
+                    <ListView x:Name="RangesList" ItemsSource="{Binding Ranges}"
+                        SelectionMode="None"
+                        BorderThickness="1" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                        CornerRadius="6" MinHeight="120">
+                        <ListView.ItemTemplate>
+                            <DataTemplate x:DataType="core:NetworkRange">
+                                <Grid ColumnSpacing="8" Padding="0,4">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBox Grid.Column="0" PlaceholderText="Area / name"
+                                             Text="{Binding Name, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                                    <TextBox Grid.Column="1" PlaceholderText="CIDR e.g. 10.20.0.0/24"
+                                             Text="{Binding Cidr, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                                    <Button Grid.Column="2" Content="&#xE74D;" FontFamily="Segoe MDL2 Assets"
+                                            ToolTipService.ToolTip="Remove range"
+                                            Command="{Binding DataContext.RemoveRangeCommand, ElementName=RangesList}"
+                                            CommandParameter="{Binding}" />
+                                </Grid>
+                            </DataTemplate>
+                        </ListView.ItemTemplate>
+                    </ListView>
+                </StackPanel>
+            </ScrollViewer>
+        </Grid>
+    </Grid>
+</Page>
