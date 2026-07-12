@@ -121,6 +121,15 @@ public sealed class BulkProvisioningTests
         Assert.All(results, result => Assert.True(result.Success));
         Assert.Equal(hd, videos["10.200.62.1"].Applied.Single().Resolution);   // HD-max camera clamped to HD
         Assert.Equal(uhd, videos["10.200.62.2"].Applied.Single().Resolution);  // 4K-capable camera gets 4K
+
+        // Structured outcome tells the UI the truth: requested vs applied, and that it was clamped.
+        var cam1 = results.Single(r => r.Address.ToString() == "10.200.62.1").Video.Single();
+        Assert.Equal(uhd, cam1.Requested);
+        Assert.Equal(hd, cam1.Applied);
+        Assert.True(cam1.Clamped);
+        var cam2 = results.Single(r => r.Address.ToString() == "10.200.62.2").Video.Single();
+        Assert.Equal(uhd, cam2.Applied);
+        Assert.False(cam2.Clamped);
     }
 
     [Fact]
@@ -138,6 +147,10 @@ public sealed class BulkProvisioningTests
         Assert.True(result.Success);
         Assert.Empty(fake.Applied);
         Assert.Contains(result.Steps, step => step.Contains("already set"));
+        var outcome = result.Video.Single();
+        Assert.Equal(uhd, outcome.Applied);
+        Assert.False(outcome.Changed);
+        Assert.False(outcome.Clamped);
     }
 
     private static SurveilConfig Config(string building, string area, string cidr) =>
