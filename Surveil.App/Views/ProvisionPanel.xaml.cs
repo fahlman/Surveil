@@ -4,11 +4,13 @@ using Surveil.App.ViewModels;
 
 namespace Surveil.App.Views;
 
-public sealed partial class ProvisionPage : Page
+/// <summary>The Provision UI as a right-side drawer panel (reflowed vertically). Hosts its own
+/// <see cref="ProvisionViewModel"/>, so its state persists while the drawer is toggled.</summary>
+public sealed partial class ProvisionPanel : UserControl
 {
     private ProvisionViewModel Vm => (ProvisionViewModel)DataContext;
 
-    public ProvisionPage()
+    public ProvisionPanel()
     {
         InitializeComponent();
         DataContext = new ProvisionViewModel();
