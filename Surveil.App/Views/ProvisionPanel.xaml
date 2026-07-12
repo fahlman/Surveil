@@ -71,7 +71,6 @@
                             </StackPanel>
                         </muxc:Expander>
 
-                        <CheckBox Content="Skip cameras outside the map" IsChecked="{Binding SkipUnknownLocation, Mode=TwoWay}" />
                         <muxc:NumberBox Header="Max concurrency" Value="{Binding MaxConcurrency, Mode=TwoWay}" Minimum="1" Maximum="64" SpinButtonPlacementMode="Compact" />
                         <ToggleSwitch Header="Dry run (read only, write nothing)" IsOn="{Binding DryRun, Mode=TwoWay}" OnContent="On" OffContent="Off" />
 
