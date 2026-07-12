@@ -27,6 +27,8 @@ public sealed partial class BuildingsViewModel : ObservableObject
         Buildings.Clear();
         foreach (var building in session.Config.Buildings)
             Buildings.Add(new BuildingItem(building, Buildings));
+        // There is always at least one building — a fresh/empty map starts with an empty one.
+        if (Buildings.Count == 0) Buildings.Add(new BuildingItem("Building 1", Buildings));
     }
 
     [RelayCommand]

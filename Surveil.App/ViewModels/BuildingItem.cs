@@ -52,7 +52,14 @@ public sealed partial class BuildingItem : ObservableObject
 
     [RelayCommand] private void ToggleExpand() => IsExpanded = !IsExpanded;
 
-    [RelayCommand] private void Remove() => Owner?.Remove(this);
+    [RelayCommand]
+    private void Remove()
+    {
+        if (Owner is null) return;
+        Owner.Remove(this);
+        // Never leave the map with no buildings — recreate an empty one.
+        if (Owner.Count == 0) Owner.Add(new BuildingItem("Building 1", Owner));
+    }
 
     /// <summary>Add a new building right after this one (the building row's + button).</summary>
     [RelayCommand]
