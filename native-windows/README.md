@@ -12,6 +12,9 @@ Implemented so far:
 - Duplicate and overlapping range validation
 - IP-to-building/area lookup
 - New, present, absent, and out-of-scope inventory comparison
+- Concurrent TCP scanning with bounded concurrency, timeout, cancellation, and progress
+- Atomic JSON persistence in `%LOCALAPPDATA%\Surveil`
+- ONVIF WS-Discovery probing and response parsing
 - xUnit coverage for the core behavior
 
 Run the tests on Windows with:
