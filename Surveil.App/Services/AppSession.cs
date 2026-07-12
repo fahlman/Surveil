@@ -1,3 +1,4 @@
+using Surveil.App.ViewModels;
 using Surveil.Core;
 
 namespace Surveil.App.Services;
@@ -45,4 +46,22 @@ public sealed class AppSession
 
     public async Task LoadConfigAsync(CancellationToken cancellationToken = default) =>
         Config = await Service.GetConfigAsync(cancellationToken);
+
+    // --- Provision drawer (single shared instance so Scan/Discover can push targets to it) ---
+
+    private ProvisionViewModel? provision;
+
+    /// <summary>The one Provision view model behind the right-side drawer. Created lazily so it
+    /// isn't built during this singleton's own construction.</summary>
+    public ProvisionViewModel Provision => provision ??= new ProvisionViewModel();
+
+    /// <summary>Raised when a page asks to open the Provision drawer (e.g. "Send to Provision").</summary>
+    public event Action? ProvisionDrawerRequested;
+
+    /// <summary>Load addresses into the Provision panel and ask the shell to open the drawer.</summary>
+    public void RequestProvision(string targets)
+    {
+        Provision.Targets = targets;
+        ProvisionDrawerRequested?.Invoke();
+    }
 }

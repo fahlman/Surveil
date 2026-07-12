@@ -63,4 +63,13 @@ public sealed partial class DiscoverViewModel : ObservableObject
 
     [RelayCommand]
     private void Cancel() => cts?.Cancel();
+
+    /// <summary>Push the discovered cameras into the Provision drawer and open it.</summary>
+    [RelayCommand]
+    private void SendToProvision()
+    {
+        var ips = Results.Select(r => r.Ip).Distinct().ToArray();
+        if (ips.Length == 0) return;
+        session.RequestProvision(string.Join(" ", ips));
+    }
 }
