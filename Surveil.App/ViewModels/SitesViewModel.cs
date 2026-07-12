@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Net;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Surveil.App.Services;
@@ -252,14 +253,15 @@ public sealed partial class SitesViewModel : ObservableObject
                 {
                     Ip = camera.Ip, Site = camera.Site, Area = camera.Area, Status = "discovered",
                 };
+                var endpoint = EndpointFromXAddresses(camera.XAddresses);
                 var range = sets.FirstOrDefault(kv => kv.Value.Contains(camera.Ip)).Key;
                 if (range is not null)
                 {
-                    AddCamera(range.Cameras, status);
+                    AddCamera(range.Cameras, status, endpoint);
                 }
                 else
                 {
-                    AddCamera(UnmappedCameras, status);
+                    AddCamera(UnmappedCameras, status, endpoint);
                     unmapped++;
                 }
             }
@@ -313,22 +315,31 @@ public sealed partial class SitesViewModel : ObservableObject
         return sets;
     }
 
-    private void AddCamera(ObservableCollection<CameraItem> cameras, CameraStatus camera)
+    private void AddCamera(ObservableCollection<CameraItem> cameras, CameraStatus camera, Uri? endpoint = null)
     {
         if (cameras.Any(c => c.Ip == camera.Ip)) return;  // dedupe by IP
-        cameras.Add(new CameraItem(camera) { SelectionChanged = OnProvisionSelectionChanged });
+        cameras.Add(new CameraItem(camera, endpoint) { SelectionChanged = OnProvisionSelectionChanged });
     }
 
-    /// <summary>Rebuild the provisioning target set from every ticked camera in the tree.</summary>
+    /// <summary>Rebuild the provisioning target set from every ticked camera in the tree, carrying
+    /// each camera's advertised endpoint so provisioning connects exactly where it announced.</summary>
     private void OnProvisionSelectionChanged()
     {
-        var ips = Sites.SelectMany(s => s.Children).SelectMany(r => r.Cameras)
-            .Concat(UnmappedCameras)
-            .Where(c => c.IsSelected)
-            .Select(c => c.Ip)
-            .Distinct()
-            .ToList();
-        session.Provision.SetSelectedTargets(ips);
+        var targets = new List<(IPAddress Address, Uri? Endpoint)>();
+        var seen = new HashSet<string>();
+        foreach (var cam in Sites.SelectMany(s => s.Children).SelectMany(r => r.Cameras).Concat(UnmappedCameras))
+        {
+            if (!cam.IsSelected || !IPAddress.TryParse(cam.Ip, out var address) || !seen.Add(cam.Ip)) continue;
+            targets.Add((address, cam.Endpoint));
+        }
+        session.Provision.SetSelectedTargets(targets);
+    }
+
+    /// <summary>First absolute URL from a space-separated WS-Discovery XAddrs list, or null.</summary>
+    private static Uri? EndpointFromXAddresses(string xAddresses)
+    {
+        var first = xAddresses.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries).FirstOrDefault();
+        return Uri.TryCreate(first, UriKind.Absolute, out var uri) ? uri : null;
     }
 
     /// <summary>Ranges that are ticked and carry a CIDR — the scan targets offered after discovery.</summary>

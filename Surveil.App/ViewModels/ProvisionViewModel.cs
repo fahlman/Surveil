@@ -46,18 +46,22 @@ public sealed partial class ProvisionViewModel : ObservableObject
         _ => $"{SelectedCameraCount} cameras selected",
     };
 
-    /// <summary>The IPs of the ticked cameras; provisioning targets exactly these.</summary>
-    private IReadOnlyList<string> selectedCameraIps = Array.Empty<string>();
+    /// <summary>The ticked cameras: address + the endpoint each advertised via discovery (null =
+    /// fall back to the standard path). Provisioning targets exactly these.</summary>
+    private IReadOnlyList<(IPAddress Address, Uri? Endpoint)> selectedTargets = Array.Empty<(IPAddress, Uri?)>();
 
     public ObservableCollection<ProvisionPlanRow> Plans { get; } = new();
     public ObservableCollection<ProvisionResultRow> Results { get; } = new();
 
     /// <summary>Called by the Sites tree whenever the camera selection changes.</summary>
-    public void SetSelectedTargets(IReadOnlyList<string> ips)
+    public void SetSelectedTargets(IReadOnlyList<(IPAddress Address, Uri? Endpoint)> targets)
     {
-        selectedCameraIps = ips;
-        SelectedCameraCount = ips.Count;
+        selectedTargets = targets;
+        SelectedCameraCount = targets.Count;
     }
+
+    /// <summary>The selected camera IPs, for the pre-write confirmation dialog.</summary>
+    public IReadOnlyList<string> SelectedIps => selectedTargets.Select(t => t.Address.ToString()).ToList();
 
     public ProvisionViewModel()
     {
@@ -76,7 +80,7 @@ public sealed partial class ProvisionViewModel : ObservableObject
         try
         {
             var service = BuildService();
-            var provisionTargets = service.TargetsFromAddresses(ExpandTargets());
+            var provisionTargets = service.TargetsFrom(selectedTargets);
             var plans = service.Plan(provisionTargets, includeUnknownLocation: true);
             foreach (var plan in plans) Plans.Add(new ProvisionPlanRow(plan));
             StatusMessage = plans.Count == 0
@@ -91,8 +95,9 @@ public sealed partial class ProvisionViewModel : ObservableObject
         }
     }
 
-    [RelayCommand]
-    private async Task ProvisionAsync()
+    /// <summary>Apply the selected identity/NTP/video settings to the ticked cameras. Called from the
+    /// panel, which gates a real (non-dry-run) write behind a confirmation.</summary>
+    public async Task ProvisionAsync()
     {
         if (IsBusy) return;
         Results.Clear();
@@ -103,7 +108,7 @@ public sealed partial class ProvisionViewModel : ObservableObject
         try
         {
             service = BuildService();
-            provisionTargets = service.TargetsFromAddresses(ExpandTargets());
+            provisionTargets = service.TargetsFrom(selectedTargets);
         }
         catch (Exception ex)
         {
@@ -191,14 +196,6 @@ public sealed partial class ProvisionViewModel : ObservableObject
         session.Username = Username;
         session.Password = Password;
         return new BulkProvisioningService(session.Config, Username, Password);
-    }
-
-    private IReadOnlyList<IPAddress> ExpandTargets()
-    {
-        var addresses = new List<IPAddress>();
-        foreach (var ip in selectedCameraIps)
-            if (IPAddress.TryParse(ip, out var address)) addresses.Add(address);
-        return addresses;
     }
 
     private static IReadOnlyList<string>? ParseCodecs(string text)
