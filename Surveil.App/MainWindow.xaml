@@ -57,11 +57,6 @@
                             <FontIcon Glyph="&#xE71E;" />
                         </muxc:NavigationViewItem.Icon>
                     </muxc:NavigationViewItem>
-                    <muxc:NavigationViewItem Content="Inventory" Tag="inventory">
-                        <muxc:NavigationViewItem.Icon>
-                            <FontIcon Glyph="&#xE8FD;" />
-                        </muxc:NavigationViewItem.Icon>
-                    </muxc:NavigationViewItem>
                 </muxc:NavigationView.MenuItems>
 
                 <muxc:NavigationView.FooterMenuItems>
