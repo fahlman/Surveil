@@ -29,8 +29,6 @@ public sealed partial class MainWindow : Window
         var page = (item.Tag as string) switch
         {
             "buildings" => typeof(BuildingsPage),
-            "scan" => typeof(ScanPage),
-            "discover" => typeof(DiscoverPage),
             "settings" => typeof(SettingsPage),
             _ => typeof(BuildingsPage),
         };
