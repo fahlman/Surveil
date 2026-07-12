@@ -7,7 +7,7 @@ public sealed class JsonStore
     public const string ConfigFileName = "buildings.json";
     public const string InventoryFileName = "cameras.json";
 
-    private static readonly JsonSerializerOptions Options = new() {
+    internal static readonly JsonSerializerOptions Options = new() {
         PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
         PropertyNameCaseInsensitive = true,
         WriteIndented = true
@@ -25,9 +25,8 @@ public sealed class JsonStore
     {
         var path = Path.Combine(DataDirectory, ConfigFileName);
         if (!File.Exists(path)) return new SurveilConfig();
-        await using var stream = File.OpenRead(path);
-        return await JsonSerializer.DeserializeAsync<SurveilConfig>(stream, Options, cancellationToken)
-               ?? new SurveilConfig();
+        var json = await File.ReadAllTextAsync(path, cancellationToken);
+        return ConfigMigration.Deserialize(json, Options);
     }
 
     public async Task SaveConfigAsync(SurveilConfig config, CancellationToken cancellationToken = default)
@@ -47,6 +46,19 @@ public sealed class JsonStore
 
     public Task SaveInventoryAsync(Inventory inventory, CancellationToken cancellationToken = default) =>
         AtomicWriteAsync(Path.Combine(DataDirectory, InventoryFileName), inventory, cancellationToken);
+
+    public async Task<SurveilConfig> ImportConfigAsync(string sourcePath, CancellationToken cancellationToken = default)
+    {
+        var config = ConfigMigration.Deserialize(await File.ReadAllTextAsync(sourcePath, cancellationToken), Options);
+        await SaveConfigAsync(config, cancellationToken);
+        return config;
+    }
+
+    public async Task ExportConfigAsync(string destinationPath, CancellationToken cancellationToken = default)
+    {
+        var config = await LoadConfigAsync(cancellationToken);
+        await AtomicWriteAsync(destinationPath, config, cancellationToken);
+    }
 
     private static async Task AtomicWriteAsync<T>(string path, T value, CancellationToken cancellationToken)
     {

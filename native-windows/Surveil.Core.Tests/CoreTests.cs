@@ -60,6 +60,60 @@ public sealed class CoreTests
         const string xml = "<d:ProbeMatch xmlns:d='urn:test'><d:XAddrs>http://192.168.10.7/onvif/device_service</d:XAddrs></d:ProbeMatch>";
         Assert.Equal("http://192.168.10.7/onvif/device_service", WsDiscovery.ExtractXAddresses(xml));
     }
+
+    [Fact]
+    public async Task MigratesEveryLegacyConfigurationShape()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"surveil-migration-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            var store = new JsonStore(directory);
+            var path = Path.Combine(directory, JsonStore.ConfigFileName);
+            await File.WriteAllTextAsync(path,
+                "{\"buildings\":[{\"name\":\"Hall\",\"ranges\":[\"10.20.68.0/24\"],\"notes\":\"\"}]}");
+            Assert.Equal("Basement", (await store.LoadConfigAsync()).Buildings[0].Ranges[0].Name);
+
+            await File.WriteAllTextAsync(path,
+                "[{\"octet\":20,\"name\":\"Hall\",\"basement\":false,\"ground\":true,\"floors\":2}]");
+            Assert.Equal(3, (await store.LoadConfigAsync()).Buildings[0].Ranges.Count);
+
+            await File.WriteAllTextAsync(path,
+                "{\"network\":{\"octets\":[\"10\",\"building\",\"level\",\"host\"]}," +
+                "\"levels\":[{\"label\":\"Second Floor\",\"code\":62}]," +
+                "\"buildings\":[{\"octet\":20,\"name\":\"Hall\",\"levels\":[\"Second Floor\"]}],\"subnets\":[]}");
+            Assert.Equal("10.20.62.0/24", (await store.LoadConfigAsync()).Buildings[0].Ranges[0].Cidr);
+        }
+        finally
+        {
+            Directory.Delete(directory, true);
+        }
+    }
+
+    [Fact]
+    public async Task ApplicationServiceOrchestratesScanAndDiscovery()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"surveil-service-{Guid.NewGuid():N}");
+        try
+        {
+            var store = new JsonStore(directory);
+            await store.SaveConfigAsync(new SurveilConfig { Buildings = [new Building {
+                Name = "Hall", Ranges = [new NetworkRange { Name = "Main", Cidr = "192.168.10.0/30" }]
+            }]});
+            var service = new SurveilService(store, new FakeScanner([IPAddress.Parse("192.168.10.1")]),
+                new FakeDiscovery([new WsDiscoveryResponder(IPAddress.Parse("192.168.10.1"), "http://camera/onvif")]));
+            var statuses = await service.ScanAsync(["192.168.10.0/30"], 80);
+            Assert.Equal("new", statuses.Single().Status);
+            Assert.Equal("Hall", statuses.Single().Building);
+            var discovered = await service.DiscoverAsync();
+            Assert.Equal("Hall", discovered.Cameras.Single().Building);
+            Assert.Equal(1, discovered.DistinctSubnets);
+        }
+        finally
+        {
+            if (Directory.Exists(directory)) Directory.Delete(directory, true);
+        }
+    }
     [Fact]
     public void ExpandsPrivateRangesAndRejectsHugeScans()
     {
@@ -114,5 +168,18 @@ public sealed class CoreTests
     private sealed class InlineProgress<T>(Action<T> report) : IProgress<T>
     {
         public void Report(T value) => report(value);
+    }
+
+    private sealed class FakeScanner(IReadOnlyList<IPAddress> result) : ICameraScanner
+    {
+        public Task<IReadOnlyList<IPAddress>> ScanAsync(IReadOnlyCollection<IPAddress> addresses, int port,
+            int concurrency = 256, TimeSpan? timeout = null, IProgress<ScanProgress>? progress = null,
+            CancellationToken cancellationToken = default) => Task.FromResult(result);
+    }
+
+    private sealed class FakeDiscovery(IReadOnlyList<WsDiscoveryResponder> result) : IWsDiscovery
+    {
+        public Task<IReadOnlyList<WsDiscoveryResponder>> DiscoverAsync(TimeSpan? timeout = null,
+            CancellationToken cancellationToken = default) => Task.FromResult(result);
     }
 }

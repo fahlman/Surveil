@@ -5,7 +5,14 @@ namespace Surveil.Core;
 
 public readonly record struct ScanProgress(int Scanned, int Total, int Found);
 
-public sealed class CameraScanner
+public interface ICameraScanner
+{
+    Task<IReadOnlyList<IPAddress>> ScanAsync(IReadOnlyCollection<IPAddress> addresses, int port,
+        int concurrency = 256, TimeSpan? timeout = null, IProgress<ScanProgress>? progress = null,
+        CancellationToken cancellationToken = default);
+}
+
+public sealed class CameraScanner : ICameraScanner
 {
     public async Task<IReadOnlyList<IPAddress>> ScanAsync(
         IReadOnlyCollection<IPAddress> addresses,

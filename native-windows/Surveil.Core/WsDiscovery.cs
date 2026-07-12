@@ -7,7 +7,13 @@ namespace Surveil.Core;
 
 public sealed record WsDiscoveryResponder(IPAddress Ip, string XAddresses);
 
-public sealed class WsDiscovery
+public interface IWsDiscovery
+{
+    Task<IReadOnlyList<WsDiscoveryResponder>> DiscoverAsync(
+        TimeSpan? timeout = null, CancellationToken cancellationToken = default);
+}
+
+public sealed class WsDiscovery : IWsDiscovery
 {
     private static readonly IPEndPoint MulticastEndpoint = new(IPAddress.Parse("239.255.255.250"), 3702);
 

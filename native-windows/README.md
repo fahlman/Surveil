@@ -15,6 +15,10 @@ Implemented so far:
 - Concurrent TCP scanning with bounded concurrency, timeout, cancellation, and progress
 - Atomic JSON persistence in `%LOCALAPPDATA%\Surveil`
 - ONVIF WS-Discovery probing and response parsing
+- Migration of all three legacy Surveil configuration formats
+- Import and export services
+- A UI-ready `SurveilService` coordinating scans, inventory, location, and discovery
+- Injectable scanner and discovery interfaces for testing and future UI previews
 - xUnit coverage for the core behavior
 
 Run the tests on Windows with:
@@ -23,4 +27,4 @@ Run the tests on Windows with:
 dotnet test native-windows/Surveil.Core.Tests/Surveil.Core.Tests.csproj
 ```
 
-Next: add the WinUI 3 application shell and connect it to these services.
+Next: add the WinUI 3 application shell and connect it to `SurveilService`.
