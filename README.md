@@ -10,18 +10,34 @@ through a VMS.
 
 Surveil is a native **C# / .NET** application for Windows.
 
-- **`native-windows/Surveil.Core`** — platform-independent domain logic: subnet
-  sweep, building-map scanning, scan-to-scan diff, ONVIF discovery and camera
-  configuration, and atomic JSON persistence. Targets `net8.0` and is covered by
-  xUnit tests.
+- **`Surveil.Core`** — platform-independent domain logic (targets `net8.0`,
+  covered by xUnit tests).
 - **WinUI 3 desktop app** *(in progress)* — the UI shell that consumes
   `Surveil.Core`.
 
-See [`native-windows/README.md`](native-windows/README.md) for the full feature
-list and build instructions.
-
 > An earlier Tauri/Rust prototype was removed; the C# port is the sole
 > implementation going forward.
+
+## Implemented so far
+
+- Building, named-range, camera, and inventory models
+- Private IPv4 CIDR parsing and expansion, with a 65,534-address scan safety limit
+- Duplicate and overlapping range validation
+- IP-to-building/area lookup
+- New, present, absent, and out-of-scope inventory comparison
+- Concurrent TCP scanning with bounded concurrency, timeout, cancellation, and progress
+- Atomic JSON persistence in `%LOCALAPPDATA%\Surveil`
+- ONVIF WS-Discovery probing and response parsing
+- ONVIF Media2 profile and video-encoder configuration client, with resolution,
+  frame-rate, bitrate, and quality option discovery
+- Validated persistent video-encoder updates against the current `ver20` Media2 contract
+- Device Management `GetServices` negotiation with automatic Media2 preference
+- Media1/Profile S fallback for older cameras via the same video-configuration interface
+- Capability-validated brightness and automatic/manual white-balance configuration
+- Device hostname, NTP/manual date-time, and friendly camera-name scope configuration
+- Explicit authentication-failure classification for UI error reporting
+- Migration of all three legacy Surveil configuration formats, plus import/export
+- A UI-ready `SurveilService` coordinating scans, inventory, location, and discovery
 
 ## Data
 
@@ -46,5 +62,11 @@ guard against accidentally selecting an overly broad range.
 ## Develop
 
 ```powershell
-dotnet test native-windows/Surveil.Core.Tests/Surveil.Core.Tests.csproj
+dotnet test Surveil.Core.Tests/Surveil.Core.Tests.csproj
 ```
+
+The ONVIF clients use HTTP Digest authentication through .NET and accept an
+injectable `HttpClient` for testing.
+
+- **Next ONVIF work:** WS-Security UsernameToken authentication for cameras that require it.
+- **Next UI work:** the WinUI 3 application shell, connected to `Surveil.Core`.
