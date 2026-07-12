@@ -19,8 +19,9 @@ public sealed partial class BuildingsViewModel : ObservableObject
     /// <summary>Buildings shown in the list; the source of truth while editing.</summary>
     public ObservableCollection<BuildingItem> Buildings { get; } = new();
 
-    /// <summary>Ranges of the currently selected building, editable in place.</summary>
-    public ObservableCollection<NetworkRange> Ranges { get; } = new();
+    /// <summary>Ranges of the currently selected building. Each row locks after creation and is
+    /// re-editable via its edit button.</summary>
+    public ObservableCollection<NetworkRangeItem> Ranges { get; } = new();
 
     public string DataDirectory => session.DataDirectory;
 
@@ -38,7 +39,7 @@ public sealed partial class BuildingsViewModel : ObservableObject
         if (oldValue is not null) CommitRanges(oldValue);
         Ranges.Clear();
         if (newValue is not null)
-            foreach (var range in newValue.Ranges) Ranges.Add(range);
+            foreach (var range in newValue.Ranges) Ranges.Add(new NetworkRangeItem(range, editing: false));
     }
 
     [RelayCommand]
@@ -58,17 +59,34 @@ public sealed partial class BuildingsViewModel : ObservableObject
         SelectedBuilding = Buildings.Count == 0 ? null : Buildings[Math.Max(0, index - 1)];
     }
 
+    /// <summary>Add the first range (used by the empty-state button).</summary>
     [RelayCommand]
     private void AddRange()
     {
         if (SelectedBuilding is null) return;
-        Ranges.Add(new NetworkRange { Name = "", Cidr = "" });
+        Ranges.Add(new NetworkRangeItem());
+    }
+
+    /// <summary>Add a new (editable) range immediately after the given one.</summary>
+    [RelayCommand]
+    private void AddRangeAfter(NetworkRangeItem? range)
+    {
+        if (SelectedBuilding is null) return;
+        var index = range is null ? Ranges.Count - 1 : Ranges.IndexOf(range);
+        Ranges.Insert(index + 1, new NetworkRangeItem());
     }
 
     [RelayCommand]
-    private void RemoveRange(NetworkRange? range)
+    private void RemoveRange(NetworkRangeItem? range)
     {
         if (range is not null) Ranges.Remove(range);
+    }
+
+    /// <summary>Lock a row after editing, or unlock it to edit again.</summary>
+    [RelayCommand]
+    private void ToggleEditRange(NetworkRangeItem? range)
+    {
+        if (range is not null) range.IsEditing = !range.IsEditing;
     }
 
     [RelayCommand]
@@ -135,5 +153,5 @@ public sealed partial class BuildingsViewModel : ObservableObject
         if (SelectedBuilding is not null) CommitRanges(SelectedBuilding);
     }
 
-    private void CommitRanges(BuildingItem building) => building.Ranges = Ranges.ToList();
+    private void CommitRanges(BuildingItem building) => building.Ranges = Ranges.Select(r => r.ToRange()).ToList();
 }
