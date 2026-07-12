@@ -37,6 +37,39 @@ public sealed partial class SitesPage : Page
         if (file is not null) await Vm.ExportAsync(file.Path);
     }
 
+    /// <summary>Discover runs WS-Discovery, then reports what it found and offers to port-scan the
+    /// checked ranges for cameras that didn't announce themselves.</summary>
+    private async void OnDiscoverClick(object sender, RoutedEventArgs e)
+    {
+        var summary = await Vm.DiscoverAsync();
+        if (summary is null) return;  // cancelled or failed — the status bar already explains
+
+        var found = summary.Value.Found;
+        var unmapped = summary.Value.Unmapped;
+        var checkedRanges = Vm.CheckedRangeCount;
+
+        var message = found > 0
+            ? $"Found {found} camera{(found == 1 ? "" : "s")} ({unmapped} unmapped)."
+            : "No cameras announced themselves.";
+        message += checkedRanges > 0
+            ? $"\n\nAlso port-scan the {checkedRanges} checked range{(checkedRanges == 1 ? "" : "s")} for cameras that didn't announce themselves?"
+            : "\n\nTick one or more ranges first to also port-scan them for cameras that didn't announce themselves.";
+
+        var dialog = new ContentDialog
+        {
+            XamlRoot = XamlRoot,
+            Title = "Discovery complete",
+            Content = new TextBlock { Text = message, TextWrapping = TextWrapping.Wrap },
+            PrimaryButtonText = "Scan checked ranges",
+            CloseButtonText = "Not now",
+            DefaultButton = ContentDialogButton.Primary,
+            IsPrimaryButtonEnabled = checkedRanges > 0,
+        };
+
+        if (await dialog.ShowAsync() == ContentDialogResult.Primary)
+            await Vm.ScanSelectedAsync();
+    }
+
     /// <summary>Unpackaged WinUI 3 pickers must be associated with the window's HWND.</summary>
     private static void InitializeWithWindow(object picker)
     {

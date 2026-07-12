@@ -29,7 +29,7 @@ public sealed partial class SitesViewModel : ObservableObject
     public ObservableCollection<SiteItem> Sites { get; } = new();
 
     /// <summary>Cameras found (by discovery) that fall outside every mapped CIDR.</summary>
-    public ObservableCollection<CameraStatus> UnmappedCameras { get; } = new();
+    public ObservableCollection<CameraItem> UnmappedCameras { get; } = new();
 
     public string DataDirectory => session.DataDirectory;
 
@@ -71,6 +71,7 @@ public sealed partial class SitesViewModel : ObservableObject
                 else AddCamera(UnmappedCameras, camera);
             }
             if (UnmappedCameras.Count > 0) UnmappedExpanded = true;
+            OnProvisionSelectionChanged();
         }
         catch (Exception ex)
         {
@@ -136,9 +137,9 @@ public sealed partial class SitesViewModel : ObservableObject
         }
     }
 
-    /// <summary>Scan the checked CIDRs and populate the cameras found in each one under it.</summary>
-    [RelayCommand]
-    private async Task ScanSelectedAsync()
+    /// <summary>Scan the checked CIDRs and populate the cameras found in each one under it.
+    /// Offered from the dialog that follows a discovery; not a standalone toolbar command.</summary>
+    public async Task ScanSelectedAsync()
     {
         if (IsBusy) return;
 
@@ -205,6 +206,7 @@ public sealed partial class SitesViewModel : ObservableObject
                 AddCamera(range.Cameras, camera);
                 found++;
             }
+            OnProvisionSelectionChanged();  // scanned ranges were cleared — drop any stale selections
             StatusMessage = $"Found {found} camera(s) across {addressesByRange.Count} CIDR(s).";
         }
         catch (OperationCanceledException)
@@ -225,12 +227,12 @@ public sealed partial class SitesViewModel : ObservableObject
         }
     }
 
-    /// <summary>Discover cameras on the local network; each lands under its CIDR, or in the
-    /// Unmapped group if it falls outside every mapped range.</summary>
-    [RelayCommand]
-    private async Task DiscoverAsync()
+    /// <summary>Discover cameras on the local network (WS-Discovery); each lands under its CIDR, or
+    /// in the Unmapped group if it falls outside every mapped range. Returns a summary of what was
+    /// found, or null if the run was cancelled or failed.</summary>
+    public async Task<DiscoverySummary?> DiscoverAsync()
     {
-        if (IsBusy) return;
+        if (IsBusy) return null;
 
         IsDiscovering = true;
         HasError = false;
@@ -262,17 +264,21 @@ public sealed partial class SitesViewModel : ObservableObject
                 }
             }
             if (UnmappedCameras.Count > 0) UnmappedExpanded = true;
+            OnProvisionSelectionChanged();  // Unmapped was rebuilt — drop any stale selections
             StatusMessage = $"Discovered {result.Cameras.Count} camera(s) — {unmapped} unmapped.";
+            return new DiscoverySummary(result.Cameras.Count, unmapped);
         }
         catch (OperationCanceledException)
         {
             StatusMessage = "Discovery cancelled.";
+            return null;
         }
         catch (Exception ex)
         {
             HasError = true;
             StatusMessage = ex.Message;
             AppLog.Write(ex);
+            return null;
         }
         finally
         {
@@ -307,12 +313,31 @@ public sealed partial class SitesViewModel : ObservableObject
         return sets;
     }
 
-    private static void AddCamera(ObservableCollection<CameraStatus> cameras, CameraStatus camera)
+    private void AddCamera(ObservableCollection<CameraItem> cameras, CameraStatus camera)
     {
         if (cameras.Any(c => c.Ip == camera.Ip)) return;  // dedupe by IP
-        cameras.Add(camera);
+        cameras.Add(new CameraItem(camera) { SelectionChanged = OnProvisionSelectionChanged });
     }
+
+    /// <summary>Rebuild the provisioning target set from every ticked camera in the tree.</summary>
+    private void OnProvisionSelectionChanged()
+    {
+        var ips = Sites.SelectMany(s => s.Children).SelectMany(r => r.Cameras)
+            .Concat(UnmappedCameras)
+            .Where(c => c.IsSelected)
+            .Select(c => c.Ip)
+            .Distinct()
+            .ToList();
+        session.Provision.SetSelectedTargets(ips);
+    }
+
+    /// <summary>Ranges that are ticked and carry a CIDR — the scan targets offered after discovery.</summary>
+    public int CheckedRangeCount => Sites.SelectMany(s => s.Children)
+        .Count(r => r.IsSelected && !string.IsNullOrWhiteSpace(r.Cidr));
 
     private SurveilConfig ToConfig() =>
         new() { Sites = Sites.Select(site => site.ToSite()).ToList() };
 }
+
+/// <summary>What a discovery run found, for the prompt that offers a follow-up scan.</summary>
+public readonly record struct DiscoverySummary(int Found, int Unmapped);

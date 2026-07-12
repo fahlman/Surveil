@@ -36,8 +36,29 @@ public sealed partial class ProvisionViewModel : ObservableObject
     [ObservableProperty] private double progressMaximum = 1;
     [ObservableProperty] private bool progressIndeterminate;
 
+    /// <summary>Number of cameras ticked in the Sites tree — the provisioning targets.</summary>
+    [ObservableProperty][NotifyPropertyChangedFor(nameof(SelectedCameraSummary))] private int selectedCameraCount;
+
+    /// <summary>Human-readable line shown in place of the old free-text targets box.</summary>
+    public string SelectedCameraSummary => SelectedCameraCount switch
+    {
+        0 => "No cameras selected — tick cameras in the tree",
+        1 => "1 camera selected",
+        _ => $"{SelectedCameraCount} cameras selected",
+    };
+
+    /// <summary>The IPs of the ticked cameras; provisioning targets exactly these.</summary>
+    private IReadOnlyList<string> selectedCameraIps = Array.Empty<string>();
+
     public ObservableCollection<ProvisionPlanRow> Plans { get; } = new();
     public ObservableCollection<ProvisionResultRow> Results { get; } = new();
+
+    /// <summary>Called by the Sites tree whenever the camera selection changes.</summary>
+    public void SetSelectedTargets(IReadOnlyList<string> ips)
+    {
+        selectedCameraIps = ips;
+        SelectedCameraCount = ips.Count;
+    }
 
     public ProvisionViewModel()
     {
@@ -175,9 +196,10 @@ public sealed partial class ProvisionViewModel : ObservableObject
 
     private IReadOnlyList<IPAddress> ExpandTargets()
     {
-        var specs = Targets.Split(new[] { ',', ' ', '\t', '\r', '\n' },
-            StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        return NetworkRanges.ExpandPrivate(specs);
+        var addresses = new List<IPAddress>();
+        foreach (var ip in selectedCameraIps)
+            if (IPAddress.TryParse(ip, out var address)) addresses.Add(address);
+        return addresses;
     }
 
     private static IReadOnlyList<string>? ParseCodecs(string text)
