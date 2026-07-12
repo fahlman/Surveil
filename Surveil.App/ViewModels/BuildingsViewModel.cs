@@ -32,13 +32,6 @@ public sealed partial class BuildingsViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private void AddBuilding()
-    {
-        var building = new BuildingItem($"Building {Buildings.Count + 1}", Buildings);
-        Buildings.Add(building);
-    }
-
-    [RelayCommand]
     private async Task SaveAsync()
     {
         try
