@@ -52,6 +52,16 @@ public sealed partial class BuildingItem : ObservableObject
 
     [RelayCommand] private void Remove() => Owner?.Remove(this);
 
+    /// <summary>Add a new building right after this one (the building row's + button).</summary>
+    [RelayCommand]
+    private void AddBuilding()
+    {
+        if (Owner is null) return;
+        var index = Owner.IndexOf(this);
+        Owner.Insert(index + 1, new BuildingItem($"Building {Owner.Count + 1}", Owner));
+    }
+
+    /// <summary>Add a CIDR range under this building (used by the in-building "Add range").</summary>
     [RelayCommand]
     private void AddRange()
     {

@@ -87,7 +87,7 @@
                                 <Button Grid.Column="3" Command="{x:Bind RemoveCommand}" ToolTipService.ToolTip="Delete building">
                                     <FontIcon Glyph="&#xE74D;" FontFamily="Segoe MDL2 Assets" FontSize="14" />
                                 </Button>
-                                <Button Grid.Column="4" Command="{x:Bind AddRangeCommand}" ToolTipService.ToolTip="Add range">
+                                <Button Grid.Column="4" Command="{x:Bind AddBuildingCommand}" ToolTipService.ToolTip="Add building">
                                     <FontIcon Glyph="&#xE710;" FontFamily="Segoe MDL2 Assets" FontSize="14" />
                                 </Button>
                             </Grid>
