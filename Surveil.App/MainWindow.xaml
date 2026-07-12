@@ -16,7 +16,7 @@
             PanePlacement="Right"
             DisplayMode="Inline"
             OpenPaneLength="460"
-            IsPaneOpen="False">
+            IsPaneOpen="True">
 
             <muxc:SplitView.Pane>
                 <Grid BorderThickness="1,0,0,0" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}">
@@ -24,21 +24,10 @@
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="*" />
                     </Grid.RowDefinitions>
-                    <Grid Grid.Row="0" Padding="16,12,8,8">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="Auto" />
-                        </Grid.ColumnDefinitions>
-                        <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
-                            <FontIcon Glyph="&#xE9F9;" FontSize="18" />
-                            <TextBlock Text="Provision" Style="{StaticResource SubtitleTextBlockStyle}" />
-                        </StackPanel>
-                        <Button Grid.Column="1" Click="CloseProvision_Click"
-                                Background="Transparent" BorderThickness="0"
-                                ToolTipService.ToolTip="Close">
-                            <FontIcon Glyph="&#xE711;" FontFamily="Segoe MDL2 Assets" FontSize="14" />
-                        </Button>
-                    </Grid>
+                    <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="10" Padding="16,12,8,8" VerticalAlignment="Center">
+                        <FontIcon Glyph="&#xE9F9;" FontSize="18" />
+                        <TextBlock Text="Provision" Style="{StaticResource SubtitleTextBlockStyle}" />
+                    </StackPanel>
                     <views:ProvisionPanel Grid.Row="1" />
                 </Grid>
             </muxc:SplitView.Pane>
@@ -82,17 +71,6 @@
                         </muxc:NavigationViewItem.Icon>
                     </muxc:NavigationViewItem>
                 </muxc:NavigationView.FooterMenuItems>
-
-                <muxc:NavigationView.PaneFooter>
-                    <ToggleButton x:Name="ProvisionToggle" Margin="4,4,4,8" HorizontalAlignment="Stretch"
-                                  IsChecked="{Binding ElementName=ProvisionDrawer, Path=IsPaneOpen, Mode=TwoWay}"
-                                  ToolTipService.ToolTip="Toggle the Provision panel">
-                        <StackPanel Orientation="Horizontal" Spacing="12">
-                            <FontIcon Glyph="&#xE9F9;" FontSize="16" />
-                            <TextBlock Text="Provision" />
-                        </StackPanel>
-                    </ToggleButton>
-                </muxc:NavigationView.PaneFooter>
 
                 <Frame x:Name="ContentFrame" />
             </muxc:NavigationView>
