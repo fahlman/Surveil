@@ -427,8 +427,9 @@ public sealed class CoreTests
         "<tt:YbGain><tt:Min>0</tt:Min><tt:Max>4</tt:Max></tt:YbGain>" +
         "</tt:WhiteBalance></timg:ImagingOptions></timg:GetOptionsResponse>" + SoapEnd;
     private const string ImagingEmptyResponse = ImagingSoapStart + "<timg:SetImagingSettingsResponse/>" + SoapEnd;
-    private const string HostnameResponse = DeviceSoapStart + "<td:GetHostnameResponse><td:HostnameInformation>" +
-        "<tt:FromDHCP>false</tt:FromDHCP><tt:Name xmlns:tt='http://www.onvif.org/ver10/schema'>camera-01</tt:Name>" +
+    private const string HostnameResponse = DeviceSoapStart +
+        "<td:GetHostnameResponse xmlns:tt='http://www.onvif.org/ver10/schema'><td:HostnameInformation>" +
+        "<tt:FromDHCP>false</tt:FromDHCP><tt:Name>camera-01</tt:Name>" +
         "</td:HostnameInformation></td:GetHostnameResponse>" + SoapEnd;
     private const string DeviceEmptyResponse = DeviceSoapStart + "<td:Response/>" + SoapEnd;
     private const string HostnameDhcpResponse = DeviceSoapStart +
