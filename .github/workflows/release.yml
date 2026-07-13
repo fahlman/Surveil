@@ -1,0 +1,39 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to release (e.g. v0.1.0)"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: "8.0.x"
+
+      # Fully self-contained, unpackaged WinUI 3 build: bundles the .NET and
+      # Windows App SDK runtimes so the target machine needs nothing installed.
+      - name: Publish (self-contained win-x64)
+        run: dotnet publish Surveil.App/Surveil.App.csproj -c Release -r win-x64 --self-contained true -o publish
+
+      - name: Package and publish release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = "${{ github.event.inputs.tag || github.ref_name }}"
+          $zip = "Surveil-$tag-win-x64.zip"
+          Compress-Archive -Path publish/* -DestinationPath $zip
+          $notes = "Unpackaged, self-contained Windows x64 build of Surveil.App.`n`nDownload the zip, extract it anywhere, and run **Surveil.App.exe** — no install and no .NET/Windows App Runtime needed.`n`nNot yet validated against real ONVIF hardware."
+          gh release create $tag $zip --repo "${{ github.repository }}" --title "Surveil $tag" --prerelease --notes $notes
