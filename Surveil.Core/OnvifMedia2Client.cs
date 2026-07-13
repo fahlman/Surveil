@@ -1,7 +1,5 @@
 using System.Globalization;
 using System.Net;
-using System.Net.Http.Headers;
-using System.Text;
 using System.Xml.Linq;
 
 namespace Surveil.Core;
@@ -26,36 +24,28 @@ public sealed class OnvifMedia2Client : IOnvifVideoClient
 {
     public const string MediaNamespace = "http://www.onvif.org/ver20/media/wsdl";
     public const string SchemaNamespace = "http://www.onvif.org/ver10/schema";
-    private const string SoapNamespace = "http://www.w3.org/2003/05/soap-envelope";
-
-    private readonly Uri endpoint;
-    private readonly HttpClient http;
-    private readonly bool ownsHttpClient;
+    private readonly OnvifSoapTransport transport;
 
     public OnvifMedia2Client(Uri endpoint, string username, string password)
     {
-        this.endpoint = endpoint;
-        var credentials = new NetworkCredential(username, password);
-        var handler = new HttpClientHandler { Credentials = credentials, PreAuthenticate = true };
-        http = new HttpClient(handler);
-        ownsHttpClient = true;
+        transport = new OnvifSoapTransport(endpoint, username, password);
     }
 
     public OnvifMedia2Client(Uri endpoint, HttpClient httpClient)
     {
-        this.endpoint = endpoint;
-        http = httpClient;
+        transport = new OnvifSoapTransport(endpoint, httpClient);
     }
 
     public OnvifMediaGeneration Generation => OnvifMediaGeneration.Media2;
-    public Uri Endpoint => endpoint;
+    public Uri Endpoint => transport.Endpoint;
 
     public async Task<IReadOnlyList<OnvifMediaProfile>> GetProfilesAsync(
         CancellationToken cancellationToken = default)
     {
         var response = await SendAsync("GetProfiles",
             new XElement(M("GetProfiles"), new XElement(M("Type"), "VideoEncoder")), cancellationToken);
-        return response.Descendants(M("Profiles")).Select(profile => {
+        return response.Descendants(M("Profiles")).Select(profile =>
+        {
             var source = Descendant(profile, "VideoSource");
             return new OnvifMediaProfile(
                 RequiredAttribute(profile, "token"),
@@ -143,24 +133,8 @@ public sealed class OnvifMedia2Client : IOnvifVideoClient
             gov is { Length: 2 } ? new OnvifRange<int>(gov[0], gov[1]) : null);
     }
 
-    private async Task<XElement> SendAsync(string operation, XElement body, CancellationToken cancellationToken)
-    {
-        var envelope = new XDocument(new XElement(XName.Get("Envelope", SoapNamespace),
-            new XAttribute(XNamespace.Xmlns + "s", SoapNamespace),
-            new XAttribute(XNamespace.Xmlns + "tr2", MediaNamespace),
-            new XAttribute(XNamespace.Xmlns + "tt", SchemaNamespace),
-            new XElement(XName.Get("Body", SoapNamespace), body)));
-        using var request = new HttpRequestMessage(HttpMethod.Post, endpoint) {
-            Content = new StringContent(envelope.ToString(SaveOptions.DisableFormatting), Encoding.UTF8)
-        };
-        request.Content.Headers.ContentType = MediaTypeHeaderValue.Parse(
-            $"application/soap+xml; charset=utf-8; action=\"{MediaNamespace}/{operation}\"");
-        using var response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
-        var xml = await response.Content.ReadAsStringAsync(cancellationToken);
-        if (!response.IsSuccessStatusCode) throw new OnvifException(response.StatusCode, SoapFault(xml));
-        try { return XDocument.Parse(xml).Root ?? throw new FormatException("Empty SOAP response."); }
-        catch (Exception error) when (error is not OnvifException) { throw new OnvifException(response.StatusCode, "Invalid SOAP response.", error); }
-    }
+    private async Task<XElement> SendAsync(string operation, XElement body, CancellationToken cancellationToken) =>
+        await transport.SendAsync(MediaNamespace, operation, body, cancellationToken);
 
     private static XElement ConfigurationRequest(string operation, string? configurationToken, string? profileToken) =>
         new(M(operation), configurationToken is null ? null : new XElement(M("ConfigurationToken"), configurationToken),
@@ -186,7 +160,6 @@ public sealed class OnvifMedia2Client : IOnvifVideoClient
     private static string NormalizeEncoding(string value) => value.Replace("video/", "", StringComparison.OrdinalIgnoreCase)
         .Replace(".", "", StringComparison.Ordinal).ToUpperInvariant();
 
-    private static string SoapFault(string xml) { try { return XDocument.Parse(xml).Descendants().FirstOrDefault(x => x.Name.LocalName == "Text")?.Value ?? xml; } catch { return xml; } }
     private static XName M(string name) => XName.Get(name, MediaNamespace);
     private static XName S(string name) => XName.Get(name, SchemaNamespace);
     private static string RequiredAttribute(XElement e, string name) => e.Attribute(name)?.Value ?? throw new FormatException($"Missing {name} attribute.");
@@ -207,7 +180,7 @@ public sealed class OnvifMedia2Client : IOnvifVideoClient
     private static float? FloatOrNull(XElement? e, string name) => e?.Element(S(name)) is { } x ? float.Parse(x.Value, CultureInfo.InvariantCulture) : null;
     private static string F(float value) => value.ToString(CultureInfo.InvariantCulture);
 
-    public void Dispose() { if (ownsHttpClient) http.Dispose(); }
+    public void Dispose() => transport.Dispose();
 }
 
 public sealed class OnvifException : Exception

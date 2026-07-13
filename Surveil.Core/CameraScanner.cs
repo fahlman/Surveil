@@ -29,7 +29,8 @@ public sealed class CameraScanner : ICameraScanner
         var scannedCount = 0;
         using var gate = new SemaphoreSlim(Math.Max(1, concurrency));
 
-        var probes = addresses.Select(async address => {
+        var probes = addresses.Select(async address =>
+        {
             await gate.WaitAsync(cancellationToken);
             try
             {

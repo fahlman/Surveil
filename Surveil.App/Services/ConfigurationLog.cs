@@ -7,7 +7,8 @@ public static class ConfigurationLog
     private static readonly object Gate = new();
 
     public static string FilePath =>
-        System.IO.Path.Combine(AppSession.Current.DataDirectory, "logs", "configuration.log");
+        System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "Surveil", "logs", "configuration.log");
 
     public static void Write(string line)
     {

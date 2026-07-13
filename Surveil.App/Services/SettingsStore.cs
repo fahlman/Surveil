@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Surveil.Core;
 
 namespace Surveil.App.Services;
 
@@ -49,8 +50,7 @@ public sealed class SettingsStore
     {
         try
         {
-            Directory.CreateDirectory(dataDirectory);
-            File.WriteAllText(Path, JsonSerializer.Serialize(settings, Options));
+            AtomicJsonFile.Write(Path, settings, Options);
         }
         catch (Exception ex)
         {

@@ -2,14 +2,15 @@ using System.Text.Json;
 
 namespace Surveil.Core;
 
-public sealed class JsonStore
+public sealed class JsonStore : IConfigurationRepository, IInventoryRepository
 {
     public const string ConfigFileName = "sites.json";
     /// <summary>Older builds stored the map here; it's loaded and migrated when sites.json is absent.</summary>
     public const string LegacyConfigFileName = "buildings.json";
     public const string InventoryFileName = "cameras.json";
 
-    internal static readonly JsonSerializerOptions Options = new() {
+    internal static readonly JsonSerializerOptions Options = new()
+    {
         PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
         PropertyNameCaseInsensitive = true,
         WriteIndented = true
@@ -39,7 +40,7 @@ public sealed class JsonStore
     public async Task SaveConfigAsync(SurveilConfig config, CancellationToken cancellationToken = default)
     {
         ConfigValidator.Validate(config);
-        await AtomicWriteAsync(Path.Combine(DataDirectory, ConfigFileName), config, cancellationToken);
+        await AtomicJsonFile.WriteAsync(Path.Combine(DataDirectory, ConfigFileName), config, Options, cancellationToken);
     }
 
     public async Task<Inventory> LoadInventoryAsync(CancellationToken cancellationToken = default)
@@ -52,7 +53,7 @@ public sealed class JsonStore
     }
 
     public Task SaveInventoryAsync(Inventory inventory, CancellationToken cancellationToken = default) =>
-        AtomicWriteAsync(Path.Combine(DataDirectory, InventoryFileName), inventory, cancellationToken);
+        AtomicJsonFile.WriteAsync(Path.Combine(DataDirectory, InventoryFileName), inventory, Options, cancellationToken);
 
     public async Task<SurveilConfig> ImportConfigAsync(string sourcePath, CancellationToken cancellationToken = default)
     {
@@ -64,26 +65,6 @@ public sealed class JsonStore
     public async Task ExportConfigAsync(string destinationPath, CancellationToken cancellationToken = default)
     {
         var config = await LoadConfigAsync(cancellationToken);
-        await AtomicWriteAsync(destinationPath, config, cancellationToken);
-    }
-
-    private static async Task AtomicWriteAsync<T>(string path, T value, CancellationToken cancellationToken)
-    {
-        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        var temporary = $"{path}.{Guid.NewGuid():N}.tmp";
-        try
-        {
-            await using (var stream = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write,
-                             FileShare.None, 4096, FileOptions.WriteThrough | FileOptions.Asynchronous))
-            {
-                await JsonSerializer.SerializeAsync(stream, value, Options, cancellationToken);
-                await stream.FlushAsync(cancellationToken);
-            }
-            File.Move(temporary, path, true);
-        }
-        finally
-        {
-            if (File.Exists(temporary)) File.Delete(temporary);
-        }
+        await AtomicJsonFile.WriteAsync(destinationPath, config, Options, cancellationToken);
     }
 }

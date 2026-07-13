@@ -9,7 +9,8 @@ public static class AppLog
     private static readonly object Gate = new();
 
     private static string LogPath =>
-        Path.Combine(AppSession.Current.DataDirectory, "logs", "surveil.log");
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "Surveil", "logs", "surveil.log");
 
     public static void Write(string message)
     {

@@ -2,19 +2,30 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Surveil.App.Services;
 using Surveil.App.ViewModels;
+using Microsoft.UI.Xaml.Navigation;
 
 namespace Surveil.App.Views;
 
 public sealed partial class SettingsPage : Page
 {
+    private AppSession? session;
+
     public SettingsPage()
     {
         InitializeComponent();
-        DataContext = new SettingsViewModel();
-        // The password lives in memory only (never in settings.json); mirror it to/from the session.
-        Loaded += (_, _) => PasswordInput.Password = AppSession.Current.Password;
     }
 
-    private void OnPasswordChanged(object sender, RoutedEventArgs e) =>
-        AppSession.Current.Password = PasswordInput.Password;
+    protected override void OnNavigatedTo(NavigationEventArgs e)
+    {
+        base.OnNavigatedTo(e);
+        if (e.Parameter is not AppServices services) return;
+        session = services.Session;
+        DataContext ??= new SettingsViewModel(session);
+        PasswordInput.Password = session.Password;
+    }
+
+    private void OnPasswordChanged(object sender, RoutedEventArgs e)
+    {
+        if (session is not null) session.Password = PasswordInput.Password;
+    }
 }

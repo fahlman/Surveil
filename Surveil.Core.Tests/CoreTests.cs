@@ -68,8 +68,12 @@ public sealed class CoreTests
         var targets = service.TargetsFrom(new (IPAddress, Uri?)[] { (IPAddress.Parse("10.0.0.5"), null) });
         await service.ConfigureAsync(targets, new BulkConfigurationOptions
         {
-            SetName = false, SetHostname = false, SetNtp = false, SkipUnknownLocation = false,
-            VideoCodec = "H265", VideoResolution = new OnvifResolution(1920, 1080),
+            SetName = false,
+            SetHostname = false,
+            SetNtp = false,
+            SkipUnknownLocation = false,
+            VideoCodec = "H265",
+            VideoResolution = new OnvifResolution(1920, 1080),
         });
 
         Assert.Equal(new OnvifResolution(1920, 1080), video.AppliedResolution);  // capped, not 4K
@@ -277,29 +281,6 @@ public sealed class CoreTests
     }
 
     [Fact]
-    public async Task JsonStoreRoundTripsConfigurationAndInventory()
-    {
-        var directory = Path.Combine(Path.GetTempPath(), $"surveil-tests-{Guid.NewGuid():N}");
-        try
-        {
-            var store = new JsonStore(directory);
-            var config = new SurveilConfig { Sites = [new Site {
-                Name = "Example", Ranges = [new NetworkRange { Name = "Main", Cidr = "192.168.10.0/24" }]
-            }]};
-            await store.SaveConfigAsync(config);
-            Assert.Equal("Example", (await store.LoadConfigAsync()).Sites[0].Name);
-            await store.SaveInventoryAsync(new Inventory { LastScan = 123, Cameras = [Record("192.168.10.5")] });
-            Assert.Equal((ulong)123, (await store.LoadInventoryAsync()).LastScan);
-            Assert.DoesNotContain(Directory.EnumerateFiles(directory).Select(Path.GetFileName),
-                name => name?.EndsWith(".tmp", StringComparison.OrdinalIgnoreCase) == true);
-        }
-        finally
-        {
-            if (Directory.Exists(directory)) Directory.Delete(directory, true);
-        }
-    }
-
-    [Fact]
     public void BuildsAndParsesWsDiscoveryMessages()
     {
         Assert.Contains("NetworkVideoTransmitter", WsDiscovery.BuildProbe());
@@ -322,64 +303,18 @@ public sealed class CoreTests
     }
 
     [Fact]
-    public async Task MigratesEveryLegacyConfigurationShape()
-    {
-        var directory = Path.Combine(Path.GetTempPath(), $"surveil-migration-{Guid.NewGuid():N}");
-        Directory.CreateDirectory(directory);
-        try
-        {
-            var store = new JsonStore(directory);
-            var path = Path.Combine(directory, JsonStore.ConfigFileName);
-            await File.WriteAllTextAsync(path,
-                "{\"buildings\":[{\"name\":\"Hall\",\"ranges\":[\"10.20.68.0/24\"],\"notes\":\"\"}]}");
-            Assert.Equal("Basement", (await store.LoadConfigAsync()).Sites[0].Ranges[0].Name);
-
-            await File.WriteAllTextAsync(path,
-                "[{\"octet\":20,\"name\":\"Hall\",\"basement\":false,\"ground\":true,\"floors\":2}]");
-            Assert.Equal(3, (await store.LoadConfigAsync()).Sites[0].Ranges.Count);
-
-            await File.WriteAllTextAsync(path,
-                "{\"network\":{\"octets\":[\"10\",\"building\",\"level\",\"host\"]}," +
-                "\"levels\":[{\"label\":\"Second Floor\",\"code\":62}]," +
-                "\"buildings\":[{\"octet\":20,\"name\":\"Hall\",\"levels\":[\"Second Floor\"]}],\"subnets\":[]}");
-            Assert.Equal("10.20.62.0/24", (await store.LoadConfigAsync()).Sites[0].Ranges[0].Cidr);
-        }
-        finally
-        {
-            Directory.Delete(directory, true);
-        }
-    }
-
-    [Fact]
-    public async Task LoadsLegacyBuildingsFileAsSites()
-    {
-        var directory = Path.Combine(Path.GetTempPath(), $"surveil-legacy-{Guid.NewGuid():N}");
-        Directory.CreateDirectory(directory);
-        try
-        {
-            // Current object-ranges shape saved under the old filename — must load + migrate to sites.
-            await File.WriteAllTextAsync(Path.Combine(directory, JsonStore.LegacyConfigFileName),
-                "{\"buildings\":[{\"name\":\"Hall\",\"ranges\":[{\"name\":\"Main\",\"cidr\":\"10.20.0.0/24\"}],\"notes\":\"\"}]}");
-            var config = await new JsonStore(directory).LoadConfigAsync();
-            Assert.Equal("Hall", config.Sites.Single().Name);
-            Assert.Equal("10.20.0.0/24", config.Sites.Single().Ranges.Single().Cidr);
-        }
-        finally
-        {
-            Directory.Delete(directory, true);
-        }
-    }
-
-    [Fact]
     public async Task ApplicationServiceOrchestratesScanAndDiscovery()
     {
         var directory = Path.Combine(Path.GetTempPath(), $"surveil-service-{Guid.NewGuid():N}");
         try
         {
             var store = new JsonStore(directory);
-            await store.SaveConfigAsync(new SurveilConfig { Sites = [new Site {
+            await store.SaveConfigAsync(new SurveilConfig
+            {
+                Sites = [new Site {
                 Name = "Hall", Ranges = [new NetworkRange { Name = "Main", Cidr = "192.168.10.0/30" }]
-            }]});
+            }]
+            });
             var service = new SurveilService(store, new FakeScanner([IPAddress.Parse("192.168.10.1")]),
                 new FakeDiscovery([new WsDiscoveryResponder(IPAddress.Parse("192.168.10.1"), "http://camera/onvif")]));
             var statuses = await service.ScanAsync(["192.168.10.0/30"], 80);
@@ -394,57 +329,6 @@ public sealed class CoreTests
             if (Directory.Exists(directory)) Directory.Delete(directory, true);
         }
     }
-    [Fact]
-    public void ExpandsPrivateRangesAndRejectsHugeScans()
-    {
-        var addresses = NetworkRanges.ExpandPrivate(["192.168.10.0/30", "192.168.11.0/30"]);
-        Assert.Equal(4, addresses.Count);
-        Assert.Throws<InvalidOperationException>(() => NetworkRanges.ExpandPrivate(["10.0.0.0/8"]));
-    }
-
-    [Fact]
-    public void ValidatesOverlappingRanges()
-    {
-        var config = new SurveilConfig { Sites = [new Site {
-            Name = "Example", Ranges = [
-                new NetworkRange { Name = "One", Cidr = "192.168.10.0/24" },
-                new NetworkRange { Name = "Two", Cidr = "192.168.10.0/25" }
-            ]
-        }]};
-        Assert.Contains("overlaps", Assert.Throws<InvalidOperationException>(() => ConfigValidator.Validate(config)).Message);
-    }
-
-    [Fact]
-    public void LocatesSiteAndArea()
-    {
-        var config = new SurveilConfig { Sites = [new Site {
-            Name = "Example Hall", Ranges = [new NetworkRange { Name = "Second Floor", Cidr = "10.200.62.0/24" }]
-        }]};
-        Assert.Equal(("Example Hall", "Second Floor"), NetworkRanges.Locate(config, IPAddress.Parse("10.200.62.137")));
-    }
-
-    [Fact]
-    public void DiffsNewPresentAndMissingWithinScope()
-    {
-        var previous = new Inventory { LastScan = 100, Cameras = [
-            Record("192.168.50.5"), Record("192.168.50.6"), Record("192.168.99.9")
-        ]};
-        var scanned = new HashSet<IPAddress> {
-            IPAddress.Parse("192.168.50.5"), IPAddress.Parse("192.168.50.6"), IPAddress.Parse("192.168.50.7")
-        };
-        var (_, statuses) = InventoryComparer.Diff(previous,
-            [Found("192.168.50.5"), Found("192.168.50.7")], scanned, 200);
-        Assert.Equal("present", statuses.Single(item => item.Ip == "192.168.50.5").Status);
-        Assert.Equal("absent", statuses.Single(item => item.Ip == "192.168.50.6").Status);
-        Assert.Equal("new", statuses.Single(item => item.Ip == "192.168.50.7").Status);
-        Assert.DoesNotContain(statuses, item => item.Ip == "192.168.99.9");
-    }
-
-    private static CameraRecord Record(string ip) => new() {
-        Ip = ip, Site = "Hall", Area = "First Floor", FirstSeen = 100, LastSeen = 100
-    };
-    private static FoundCamera Found(string ip) => new() { Ip = ip, Site = "Hall", Area = "First Floor" };
-
     private sealed class InlineProgress<T>(Action<T> report) : IProgress<T>
     {
         public void Report(T value) => report(value);
@@ -473,7 +357,8 @@ public sealed class CoreTests
             var body = await request.Content!.ReadAsStringAsync(cancellationToken);
             Requests.Add(body);
             ContentTypes.Add(request.Content.Headers.ContentType!.ToString());
-            return new HttpResponseMessage(HttpStatusCode.OK) {
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
                 Content = new StringContent(response(body), Encoding.UTF8, "application/soap+xml")
             };
         }

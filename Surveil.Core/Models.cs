@@ -42,6 +42,16 @@ public sealed class FoundCamera
     public string Area { get; set; } = "";
 }
 
+public enum CameraPresenceStatus
+{
+    Unknown,
+    New,
+    Present,
+    Absent,
+    Discovered,
+    Offline,
+}
+
 public sealed class CameraStatus
 {
     public string Ip { get; set; } = "";
@@ -49,7 +59,15 @@ public sealed class CameraStatus
     public string Area { get; set; } = "";
     public ulong FirstSeen { get; set; }
     public ulong LastSeen { get; set; }
-    public string Status { get; set; } = "";
+    public CameraPresenceStatus Presence { get; set; }
+
+    /// <summary>Compatibility/display representation; domain code should use <see cref="Presence"/>.</summary>
+    public string Status
+    {
+        get => Presence == CameraPresenceStatus.Unknown ? "" : Presence.ToString().ToLowerInvariant();
+        set => Presence = Enum.TryParse<CameraPresenceStatus>(value, true, out var parsed)
+            ? parsed : CameraPresenceStatus.Unknown;
+    }
 }
 
 internal readonly record struct ParsedRange(uint Network, uint Broadcast, int Prefix)

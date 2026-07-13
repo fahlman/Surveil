@@ -22,6 +22,19 @@ public static class NetworkRanges
         return new ParsedRange(network, network | ~mask, prefix);
     }
 
+    public static bool IsValid(string specification)
+    {
+        try
+        {
+            _ = Parse(specification);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     public static IReadOnlyList<IPAddress> ExpandPrivate(IEnumerable<string> specifications)
     {
         var addresses = new SortedSet<uint>();
@@ -51,8 +64,56 @@ public static class NetworkRanges
     {
         var value = IpAddress.ToUInt32(address);
         foreach (var site in config.Sites)
-        foreach (var range in site.Ranges)
-            if (Parse(range.Cidr).Contains(value)) return (site.Name, range.Name);
+            foreach (var range in site.Ranges)
+                if (Parse(range.Cidr).Contains(value)) return (site.Name, range.Name);
         return null;
     }
+}
+
+/// <summary>A parsed, allocation-free lookup from IPv4 address to an arbitrary mapped value.</summary>
+public sealed class IpRangeMap<T> where T : class
+{
+    private readonly IReadOnlyList<(ParsedRange Range, T Value)> entries;
+
+    public IpRangeMap(IEnumerable<(string Cidr, T Value)> ranges)
+    {
+        entries = ranges.Select(item => (NetworkRanges.Parse(item.Cidr), item.Value)).ToArray();
+    }
+
+    public T? Find(IPAddress address)
+    {
+        var value = IpAddress.ToUInt32(address);
+        foreach (var entry in entries)
+            if (entry.Range.Contains(value)) return entry.Value;
+        return default;
+    }
+
+    public bool TryFind(IPAddress address, out T value)
+    {
+        var match = Find(address);
+        if (match is not null)
+        {
+            value = match;
+            return true;
+        }
+        value = default!;
+        return false;
+    }
+}
+
+public sealed record NetworkLocation(int SiteIndex, int RangeIndex, string Site, string Area, string Cidr);
+
+/// <summary>An immutable index of the configured network map; every CIDR is parsed once.</summary>
+public sealed class NetworkMapIndex
+{
+    private readonly IpRangeMap<NetworkLocation> ranges;
+
+    public NetworkMapIndex(SurveilConfig config)
+    {
+        ranges = new IpRangeMap<NetworkLocation>(
+            config.Sites.SelectMany((site, siteIndex) => site.Ranges.Select((range, rangeIndex) =>
+                (range.Cidr, new NetworkLocation(siteIndex, rangeIndex, site.Name, range.Name, range.Cidr)))));
+    }
+
+    public NetworkLocation? Locate(IPAddress address) => ranges.Find(address);
 }

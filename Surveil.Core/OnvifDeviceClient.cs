@@ -13,19 +13,15 @@ public sealed class OnvifDeviceClient : IDisposable
 {
     public const string DeviceNamespace = "http://www.onvif.org/ver10/device/wsdl";
     private const string SchemaNamespace = "http://www.onvif.org/ver10/schema";
-    private readonly HttpClient http;
-    private readonly bool ownsHttp;
-    public Uri Endpoint { get; }
+    private readonly OnvifSoapTransport transport;
+    public Uri Endpoint => transport.Endpoint;
 
     public OnvifDeviceClient(Uri endpoint, string username, string password)
     {
-        Endpoint = endpoint;
-        http = new HttpClient(new HttpClientHandler {
-            Credentials = new NetworkCredential(username, password), PreAuthenticate = true
-        });
-        ownsHttp = true;
+        transport = new OnvifSoapTransport(endpoint, username, password);
     }
-    public OnvifDeviceClient(Uri endpoint, HttpClient httpClient) => (Endpoint, http) = (endpoint, httpClient);
+    public OnvifDeviceClient(Uri endpoint, HttpClient httpClient) =>
+        transport = new OnvifSoapTransport(endpoint, httpClient);
 
     public async Task<string> GetHostnameAsync(CancellationToken cancellationToken = default)
     {
@@ -110,7 +106,8 @@ public sealed class OnvifDeviceClient : IDisposable
     public static OnvifTimeZone ResolveTimeZone(TimeZoneInfo zone)
     {
         var id = zone.Id;
-        var mapping = id switch {
+        var mapping = id switch
+        {
             "Eastern Standard Time" => ("EST5EDT,M3.2.0,M11.1.0", true),
             "Central Standard Time" => ("CST6CDT,M3.2.0,M11.1.0", true),
             "Mountain Standard Time" => ("MST7MDT,M3.2.0,M11.1.0", true),
@@ -157,10 +154,10 @@ public sealed class OnvifDeviceClient : IDisposable
     }
 
     private async Task<XElement> SendAsync(string operation, XElement body, CancellationToken cancellationToken) =>
-        await OnvifSoap.SendAsync(http, Endpoint, DeviceNamespace, operation, body, cancellationToken);
+        await transport.SendAsync(DeviceNamespace, operation, body, cancellationToken);
     private static XName D(string name) => XName.Get(name, DeviceNamespace);
     private static XName S(string name) => XName.Get(name, SchemaNamespace);
-    public void Dispose() { if (ownsHttp) http.Dispose(); }
+    public void Dispose() => transport.Dispose();
 
     private static void ValidateHostname(string name)
     {

@@ -55,12 +55,9 @@ public sealed partial class CameraItem : ObservableObject
     public string? Manufacturer => Features?.Info.Manufacturer is { Length: > 0 } value ? value : null;
     public string? ModelName => Features?.Info.Model is { Length: > 0 } value ? value : null;
     public IReadOnlyList<string> Codecs =>
-        Features?.Encoders.SelectMany(e => e.Codecs).Select(PrettyCodec).Distinct().ToList() ?? [];
+        Features?.Encoders.SelectMany(e => e.Codecs).Select(c => PrettyCodec(c.Codec)).Distinct().ToList() ?? [];
     public bool HasVideo => Features is { Encoders.Count: > 0 };
-    public IReadOnlyList<OnvifResolution> SupportedResolutions =>
-        Features?.Encoders.SelectMany(e => e.Resolutions).Distinct().ToList() ?? [];
-    public IReadOnlyList<float> SupportedFrameRates =>
-        Features?.Encoders.SelectMany(e => e.FrameRates).Distinct().ToList() ?? [];
+    public IReadOnlyList<VideoEncoderInfo> Encoders => Features?.Encoders ?? [];
     /// <summary>The bitrate window (kbps) a single value could satisfy across every encoder on this
     /// camera — the intersection of their advertised ranges; null when they don't overlap or none
     /// advertises one. Feeds the Configuration panel's bitrate control.</summary>
@@ -68,7 +65,8 @@ public sealed partial class CameraItem : ObservableObject
     {
         get
         {
-            var ranges = Features?.Encoders.Select(e => e.Bitrate).OfType<OnvifRange<int>>().ToList();
+            var ranges = Features?.Encoders.SelectMany(e => e.Codecs).Select(c => c.Bitrate)
+                .OfType<OnvifRange<int>>().ToList();
             if (ranges is not { Count: > 0 }) return null;
             var min = ranges.Max(r => r.Minimum);
             var max = ranges.Min(r => r.Maximum);
@@ -76,7 +74,8 @@ public sealed partial class CameraItem : ObservableObject
         }
     }
     public string? ResolutionBucket => Features is { Encoders.Count: > 0 } f
-        ? Bucket(f.Encoders.Select(e => e.MaxResolution).OrderByDescending(r => (long)r.Width * r.Height).First())
+        ? Bucket(f.Encoders.SelectMany(e => e.Codecs).SelectMany(c => c.Resolutions)
+            .Append(f.Encoders[0].CurrentResolution).OrderByDescending(r => (long)r.Width * r.Height).First())
         : null;
     /// <summary>Headline frame-rate spec (the fastest any encoder tops out at), rounded to a label
     /// like "30 fps"; null until identified or when no encoder reports a rate.</summary>
@@ -84,7 +83,8 @@ public sealed partial class CameraItem : ObservableObject
     {
         get
         {
-            var fps = Features?.Encoders.Select(e => e.MaxFrameRate ?? 0f).DefaultIfEmpty(0f).Max() ?? 0f;
+            var fps = Features?.Encoders.SelectMany(e => e.Codecs).SelectMany(c => c.FrameRates)
+                .DefaultIfEmpty(0f).Max() ?? 0f;
             return fps > 0f ? $"{Math.Round(fps)} fps" : null;
         }
     }
@@ -94,7 +94,8 @@ public sealed partial class CameraItem : ObservableObject
     {
         get
         {
-            var max = Features?.Encoders.Select(e => e.Bitrate?.Maximum ?? 0).DefaultIfEmpty(0).Max() ?? 0;
+            var max = Features?.Encoders.SelectMany(e => e.Codecs).Select(e => e.Bitrate?.Maximum ?? 0)
+                .DefaultIfEmpty(0).Max() ?? 0;
             return max > 0 ? BitrateBand(max) : null;
         }
     }
@@ -162,8 +163,14 @@ public sealed partial class CameraItem : ObservableObject
         if (features.Info.SerialNumber.Length > 0) more.Add("S/N " + features.Info.SerialNumber);
         MoreText = string.Join("    ", more);
         ErrorText = "";
+        foreach (var property in new[]
+                 {
+                     nameof(Manufacturer), nameof(ModelName), nameof(Codecs), nameof(HasVideo), nameof(Encoders),
+                     nameof(BitrateRange), nameof(ResolutionBucket), nameof(FrameRateBucket), nameof(BitrateBucket),
+                     nameof(Capabilities), nameof(MediaGen), nameof(Summary), nameof(CanShowDetails),
+                 })
+            OnPropertyChanged(property);
         LoginState = CameraLoginState.Success;
-        OnPropertyChanged(nameof(Summary));
     }
 
     private static bool IsCapability(string service) =>
@@ -193,13 +200,16 @@ public sealed partial class CameraItem : ObservableObject
         };
     }
 
-    private static string FormatEncoder(CameraEncoderSummary encoder)
+    private static string FormatEncoder(VideoEncoderInfo encoder)
     {
-        var codecs = encoder.Codecs.Select(PrettyCodec).ToList();
+        var codecs = encoder.Codecs.Select(c => PrettyCodec(c.Codec)).ToList();
         var primary = codecs.Count > 0 ? codecs[0] : "?";
         var others = codecs.Skip(1).ToList();
-        var fps = encoder.MaxFrameRate is { } rate and > 0 ? $" @{rate:0.#}fps" : "";
-        var main = $"{primary} {encoder.MaxResolution.Width}×{encoder.MaxResolution.Height}{fps}";
+        var maxResolution = encoder.Codecs.SelectMany(c => c.Resolutions).Append(encoder.CurrentResolution)
+            .OrderByDescending(r => (long)r.Width * r.Height).First();
+        var maxFrameRate = encoder.Codecs.SelectMany(c => c.FrameRates).DefaultIfEmpty(encoder.CurrentFrameRate ?? 0).Max();
+        var fps = maxFrameRate > 0 ? $" @{maxFrameRate:0.#}fps" : "";
+        var main = $"{primary} {maxResolution.Width}×{maxResolution.Height}{fps}";
         return others.Count > 0 ? $"{main} (+ {string.Join(", ", others)})" : main;
     }
 
