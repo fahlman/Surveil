@@ -7,20 +7,20 @@ namespace Surveil.App.ViewModels;
 public enum CameraLoginState { NotTried, NoCredentials, InProgress, Success, AuthFailed, Unreachable }
 
 /// <summary>A camera row in the tree. Wraps the core <see cref="CameraStatus"/>, carries a
-/// provision-selection checkbox, and once identified exposes what the camera is and can do — both
-/// for a compact row summary and to feed the faceted filters. The provision checkbox is a separate
+/// configuration-selection checkbox, and once identified exposes what the camera is and can do — both
+/// for a compact row summary and to feed the faceted filters. The selection checkbox is a separate
 /// axis from the range checkboxes.</summary>
 public sealed partial class CameraItem : ObservableObject
 {
     public CameraStatus Camera { get; }
 
     /// <summary>The device-service URL this camera advertised via WS-Discovery, if known. Identify
-    /// and provisioning connect here rather than assuming the standard path. Null for scanned cameras.</summary>
+    /// and configuration connect here rather than assuming the standard path. Null for scanned cameras.</summary>
     public Uri? Endpoint { get; }
 
     [ObservableProperty] private bool isSelected;
 
-    /// <summary>Raised when the provision checkbox toggles, so the owner can refresh the target set.</summary>
+    /// <summary>Raised when the selection checkbox toggles, so the owner can refresh the target set.</summary>
     public Action? SelectionChanged { get; set; }
 
     /// <summary>False when a facet filter is active and this camera doesn't match — the row hides.</summary>
@@ -59,9 +59,45 @@ public sealed partial class CameraItem : ObservableObject
     public bool HasVideo => Features is { Encoders.Count: > 0 };
     public IReadOnlyList<OnvifResolution> SupportedResolutions =>
         Features?.Encoders.SelectMany(e => e.Resolutions).Distinct().ToList() ?? [];
+    public IReadOnlyList<float> SupportedFrameRates =>
+        Features?.Encoders.SelectMany(e => e.FrameRates).Distinct().ToList() ?? [];
+    /// <summary>The bitrate window (kbps) a single value could satisfy across every encoder on this
+    /// camera — the intersection of their advertised ranges; null when they don't overlap or none
+    /// advertises one. Feeds the Configuration panel's bitrate control.</summary>
+    public OnvifRange<int>? BitrateRange
+    {
+        get
+        {
+            var ranges = Features?.Encoders.Select(e => e.Bitrate).OfType<OnvifRange<int>>().ToList();
+            if (ranges is not { Count: > 0 }) return null;
+            var min = ranges.Max(r => r.Minimum);
+            var max = ranges.Min(r => r.Maximum);
+            return min <= max ? new OnvifRange<int>(min, max) : null;
+        }
+    }
     public string? ResolutionBucket => Features is { Encoders.Count: > 0 } f
         ? Bucket(f.Encoders.Select(e => e.MaxResolution).OrderByDescending(r => (long)r.Width * r.Height).First())
         : null;
+    /// <summary>Headline frame-rate spec (the fastest any encoder tops out at), rounded to a label
+    /// like "30 fps"; null until identified or when no encoder reports a rate.</summary>
+    public string? FrameRateBucket
+    {
+        get
+        {
+            var fps = Features?.Encoders.Select(e => e.MaxFrameRate ?? 0f).DefaultIfEmpty(0f).Max() ?? 0f;
+            return fps > 0f ? $"{Math.Round(fps)} fps" : null;
+        }
+    }
+    /// <summary>Headline bitrate spec (the highest any encoder can reach) bucketed into Mbps bands;
+    /// null until identified or when no encoder advertises a bitrate.</summary>
+    public string? BitrateBucket
+    {
+        get
+        {
+            var max = Features?.Encoders.Select(e => e.Bitrate?.Maximum ?? 0).DefaultIfEmpty(0).Max() ?? 0;
+            return max > 0 ? BitrateBand(max) : null;
+        }
+    }
     public IReadOnlyList<string> Capabilities => Features?.Services.Where(IsCapability).ToList() ?? [];
     public string? MediaGen => Features is { } f ? (f.MediaGeneration == OnvifMediaGeneration.Media2 ? "Media2" : "Media1") : null;
     public string LocationLabel => Camera.Site.Length > 0 ? Camera.Site : "Unmapped";
@@ -132,6 +168,15 @@ public sealed partial class CameraItem : ObservableObject
 
     private static bool IsCapability(string service) =>
         service is "PTZ" or "imaging" or "analytics" or "events" or "recording" or "replay";
+
+    private static string BitrateBand(int kbps) => kbps switch
+    {
+        >= 16000 => "16 Mbps+",
+        >= 8000 => "8–16 Mbps",
+        >= 4000 => "4–8 Mbps",
+        >= 2000 => "2–4 Mbps",
+        _ => "< 2 Mbps",
+    };
 
     private static string Bucket(OnvifResolution resolution)
     {

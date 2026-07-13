@@ -10,7 +10,7 @@ public sealed partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
-        Title = "Surveil — ONVIF camera provisioning";
+        Title = "Surveil — ONVIF camera configuration";
     }
 
     private async void Nav_Loaded(object sender, RoutedEventArgs e)

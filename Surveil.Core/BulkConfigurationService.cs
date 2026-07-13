@@ -2,26 +2,26 @@ using System.Net;
 
 namespace Surveil.Core;
 
-/// <summary>A camera to be provisioned, tagged with where it lives per the site map.</summary>
-public sealed record CameraProvisionTarget(IPAddress Address, Uri DeviceEndpoint, string Site, string Area)
+/// <summary>A camera to be configured, tagged with where it lives per the site map.</summary>
+public sealed record CameraConfigurationTarget(IPAddress Address, Uri DeviceEndpoint, string Site, string Area)
 {
     /// <summary>True when the address fell inside a configured site range.</summary>
     public bool LocationKnown => Site.Length > 0;
 }
 
 /// <summary>The concrete identity to push to one camera, derived from its location.</summary>
-public sealed record CameraProvisionPlan(CameraProvisionTarget Target, string Name, string? Hostname);
+public sealed record CameraConfigurationPlan(CameraConfigurationTarget Target, string Name, string? Hostname);
 
 /// <summary>Per-camera outcome. <see cref="Steps"/> lists what was applied and verified.</summary>
-public sealed record CameraProvisionResult(
+public sealed record CameraConfigurationResult(
     IPAddress Address, string Site, string Area,
     bool Success, IReadOnlyList<string> Steps, string? Error,
     IReadOnlyList<VideoEncoderOutcome> Video);
 
-public readonly record struct BulkProvisionProgress(int Completed, int Total, int Succeeded, int Failed);
+public readonly record struct BulkConfigurationProgress(int Completed, int Total, int Succeeded, int Failed);
 
 /// <summary>Which identity fields to write, plus batch behavior.</summary>
-public sealed record BulkProvisionOptions
+public sealed record BulkConfigurationOptions
 {
     public bool SetName { get; init; } = true;
     public bool SetHostname { get; init; } = true;
@@ -44,6 +44,12 @@ public sealed record BulkProvisionOptions
     /// <summary>Set every encoder to the largest supported resolution no bigger than this; null
     /// leaves each encoder's resolution unchanged. Requires a video factory.</summary>
     public OnvifResolution? VideoResolution { get; init; }
+    /// <summary>Set every encoder's frame rate to this, clamped to the nearest rate at or below it
+    /// that the encoder supports; null leaves each encoder's frame rate unchanged.</summary>
+    public float? VideoFrameRate { get; init; }
+    /// <summary>Set every encoder's bitrate cap to this many kbps, clamped into each encoder's
+    /// advertised range; null leaves each encoder's bitrate unchanged.</summary>
+    public int? VideoBitrateKbps { get; init; }
     /// <summary>Preview mode: read each camera's capabilities and report exactly what would be
     /// applied, but perform no writes. Capability reads still occur; nothing on the camera changes.</summary>
     public bool DryRun { get; init; }
@@ -52,7 +58,7 @@ public sealed record BulkProvisionOptions
 /// <summary>A single camera's configuration surface, abstracted so the batch orchestration is
 /// testable without a live camera. The default implementation drives ONVIF Device Management,
 /// whose setters read the value back to confirm it took.</summary>
-public interface IProvisionableDevice : IDisposable
+public interface IConfigurableDevice : IDisposable
 {
     Task SetNameAsync(string name, CancellationToken cancellationToken);
     /// <returns>True when the camera reported that a reboot is required.</returns>
@@ -62,19 +68,20 @@ public interface IProvisionableDevice : IDisposable
 }
 
 /// <summary>What one codec supports on an encoder: the resolutions and frame rates available when
-/// the encoder is set to this codec.</summary>
+/// the encoder is set to this codec, plus its bitrate window (kbps) if advertised.</summary>
 public sealed record CodecCapability(
-    string Codec, IReadOnlyList<OnvifResolution> Resolutions, IReadOnlyList<float> FrameRates);
+    string Codec, IReadOnlyList<OnvifResolution> Resolutions, IReadOnlyList<float> FrameRates,
+    OnvifRange<int>? Bitrate = null);
 
 /// <summary>One video encoder on a camera: its token, current state, whether its codec can be
 /// switched (false for legacy Media1), and its per-codec capabilities.</summary>
 public sealed record VideoEncoderInfo(
     string ConfigurationToken, bool CanSwitchCodec,
     string CurrentCodec, OnvifResolution CurrentResolution, float? CurrentFrameRate,
-    IReadOnlyList<CodecCapability> Codecs);
+    IReadOnlyList<CodecCapability> Codecs, int? CurrentBitrate = null);
 
-/// <summary>An encoder's codec, resolution, and frame rate at a point in time.</summary>
-public sealed record VideoEncoderState(string Codec, OnvifResolution Resolution, float? FrameRate);
+/// <summary>An encoder's codec, resolution, frame rate, and bitrate (kbps) at a point in time.</summary>
+public sealed record VideoEncoderState(string Codec, OnvifResolution Resolution, float? FrameRate, int? Bitrate = null);
 
 /// <summary>What actually happened to one encoder, for truthful UI display: what was requested, and
 /// what the camera reported after the write. The flags mark where the device could not honor the
@@ -82,41 +89,43 @@ public sealed record VideoEncoderState(string Codec, OnvifResolution Resolution,
 public sealed record VideoEncoderOutcome(
     string ConfigurationToken,
     string RequestedCodec, OnvifResolution RequestedResolution, float? RequestedFrameRate,
-    string AppliedCodec, OnvifResolution AppliedResolution, float? AppliedFrameRate)
+    string AppliedCodec, OnvifResolution AppliedResolution, float? AppliedFrameRate,
+    int? RequestedBitrate = null, int? AppliedBitrate = null)
 {
     public bool CodecFallback =>
-        BulkProvisioningService.NormalizeCodec(RequestedCodec) != BulkProvisioningService.NormalizeCodec(AppliedCodec);
+        BulkConfigurationService.NormalizeCodec(RequestedCodec) != BulkConfigurationService.NormalizeCodec(AppliedCodec);
 
     public bool ClampedByCamera =>
         AppliedResolution != RequestedResolution ||
-        (RequestedFrameRate is { } requested && AppliedFrameRate is { } applied && applied < requested);
+        (RequestedFrameRate is { } requestedFps && AppliedFrameRate is { } appliedFps && appliedFps < requestedFps) ||
+        (RequestedBitrate is { } requestedBps && AppliedBitrate is { } appliedBps && appliedBps < requestedBps);
 }
 
 /// <summary>A camera's video-encoder surface, abstracted for testing. The default implementation
 /// connects over ONVIF and defers each write to the media client's capability validation.</summary>
-public interface IProvisionableVideo : IDisposable
+public interface IConfigurableVideo : IDisposable
 {
     Task<IReadOnlyList<VideoEncoderInfo>> GetEncodersAsync(CancellationToken cancellationToken);
-    /// <summary>Apply codec (null = leave unchanged) + resolution + frame rate, then read the encoder
-    /// back and return what the camera actually settled on.</summary>
+    /// <summary>Apply codec (null = leave unchanged) + resolution + frame rate + bitrate (kbps, null =
+    /// leave unchanged), then read the encoder back and return what the camera actually settled on.</summary>
     Task<VideoEncoderState> ApplyAsync(string configurationToken, string? codec, OnvifResolution resolution,
-        float? frameRate, CancellationToken cancellationToken);
+        float? frameRate, int? bitrateKbps, CancellationToken cancellationToken);
 }
 
-/// <summary>Bulk-provisions cameras over ONVIF as an iCT replacement: it derives each camera's
+/// <summary>Bulk-configures cameras over ONVIF as an iCT replacement: it derives each camera's
 /// name and hostname from the site map, applies them (plus NTP), verifies via read-back, and
 /// returns a per-camera pass/fail report instead of a silent GUI you have to trust.</summary>
-public sealed class BulkProvisioningService
+public sealed class BulkConfigurationService
 {
     private const string DeviceServicePath = "/onvif/device_service";
     private readonly SurveilConfig config;
-    private readonly Func<Uri, IProvisionableDevice> deviceFactory;
-    private readonly Func<Uri, IProvisionableVideo>? videoFactory;
-    private readonly Func<CameraProvisionTarget, (string Name, string? Hostname)> naming;
+    private readonly Func<Uri, IConfigurableDevice> deviceFactory;
+    private readonly Func<Uri, IConfigurableVideo>? videoFactory;
+    private readonly Func<CameraConfigurationTarget, (string Name, string? Hostname)> naming;
 
-    public BulkProvisioningService(SurveilConfig config, Func<Uri, IProvisionableDevice> deviceFactory,
-        Func<Uri, IProvisionableVideo>? videoFactory = null,
-        Func<CameraProvisionTarget, (string Name, string? Hostname)>? naming = null)
+    public BulkConfigurationService(SurveilConfig config, Func<Uri, IConfigurableDevice> deviceFactory,
+        Func<Uri, IConfigurableVideo>? videoFactory = null,
+        Func<CameraConfigurationTarget, (string Name, string? Hostname)>? naming = null)
     {
         this.config = config;
         this.deviceFactory = deviceFactory;
@@ -124,49 +133,49 @@ public sealed class BulkProvisioningService
         this.naming = naming ?? DefaultNaming;
     }
 
-    /// <summary>Convenience constructor that provisions over real ONVIF Device Management using the
+    /// <summary>Convenience constructor that configures over real ONVIF Device Management using the
     /// given credentials (HTTP Digest).</summary>
-    public BulkProvisioningService(SurveilConfig config, string username, string password,
-        Func<CameraProvisionTarget, (string Name, string? Hostname)>? naming = null)
+    public BulkConfigurationService(SurveilConfig config, string username, string password,
+        Func<CameraConfigurationTarget, (string Name, string? Hostname)>? naming = null)
         : this(config,
-            endpoint => new OnvifDeviceProvisioner(new OnvifDeviceClient(endpoint, username, password)),
-            endpoint => new OnvifVideoProvisioner(endpoint, username, password),
+            endpoint => new OnvifDeviceConfigurator(new OnvifDeviceClient(endpoint, username, password)),
+            endpoint => new OnvifVideoConfigurator(endpoint, username, password),
             naming) { }
 
     /// <summary>Builds targets from scanned addresses, using the standard device-service endpoint and
     /// locating each address in the site map.</summary>
-    public IReadOnlyList<CameraProvisionTarget> TargetsFromAddresses(IEnumerable<IPAddress> addresses) =>
+    public IReadOnlyList<CameraConfigurationTarget> TargetsFromAddresses(IEnumerable<IPAddress> addresses) =>
         addresses.Select(address => Locate(address, DefaultDeviceEndpoint(address))).ToArray();
 
     /// <summary>Builds targets from WS-Discovery responders, preferring the advertised XAddr endpoint.</summary>
-    public IReadOnlyList<CameraProvisionTarget> TargetsFromResponders(IEnumerable<WsDiscoveryResponder> responders) =>
+    public IReadOnlyList<CameraConfigurationTarget> TargetsFromResponders(IEnumerable<WsDiscoveryResponder> responders) =>
         responders.Select(responder => Locate(responder.Ip,
             EndpointFromXAddresses(responder.XAddresses) ?? DefaultDeviceEndpoint(responder.Ip))).ToArray();
 
     /// <summary>Builds targets from (address, advertised-endpoint) pairs — the endpoint each camera
     /// reported via WS-Discovery. A null endpoint falls back to the standard device-service path.</summary>
-    public IReadOnlyList<CameraProvisionTarget> TargetsFrom(IEnumerable<(IPAddress Address, Uri? Endpoint)> items) =>
+    public IReadOnlyList<CameraConfigurationTarget> TargetsFrom(IEnumerable<(IPAddress Address, Uri? Endpoint)> items) =>
         items.Select(item => Locate(item.Address, item.Endpoint ?? DefaultDeviceEndpoint(item.Address))).ToArray();
 
     /// <summary>Derives the planned name/hostname for each target — call this to preview a batch
     /// before applying it.</summary>
-    public IReadOnlyList<CameraProvisionPlan> Plan(IEnumerable<CameraProvisionTarget> targets,
+    public IReadOnlyList<CameraConfigurationPlan> Plan(IEnumerable<CameraConfigurationTarget> targets,
         bool includeUnknownLocation = false) =>
         targets.Where(target => target.LocationKnown || includeUnknownLocation).Select(PlanFor).ToArray();
 
-    public CameraProvisionPlan PlanFor(CameraProvisionTarget target)
+    public CameraConfigurationPlan PlanFor(CameraConfigurationTarget target)
     {
         var (name, hostname) = naming(target);
-        return new CameraProvisionPlan(target, name, hostname);
+        return new CameraConfigurationPlan(target, name, hostname);
     }
 
-    public async Task<IReadOnlyList<CameraProvisionResult>> ProvisionAsync(
-        IEnumerable<CameraProvisionTarget> targets, BulkProvisionOptions? options = null,
-        IProgress<BulkProvisionProgress>? progress = null, CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<CameraConfigurationResult>> ConfigureAsync(
+        IEnumerable<CameraConfigurationTarget> targets, BulkConfigurationOptions? options = null,
+        IProgress<BulkConfigurationProgress>? progress = null, CancellationToken cancellationToken = default)
     {
-        options ??= new BulkProvisionOptions();
+        options ??= new BulkConfigurationOptions();
         var plans = Plan(targets, includeUnknownLocation: !options.SkipUnknownLocation);
-        var results = new CameraProvisionResult[plans.Count];
+        var results = new CameraConfigurationResult[plans.Count];
         var sync = new object();
         var completed = 0;
         var succeeded = 0;
@@ -178,13 +187,13 @@ public sealed class BulkProvisioningService
             await gate.WaitAsync(cancellationToken);
             try
             {
-                var result = await ProvisionOneAsync(plan, options, cancellationToken);
+                var result = await ConfigureOneAsync(plan, options, cancellationToken);
                 lock (sync)
                 {
                     results[index] = result;
                     completed++;
                     if (result.Success) succeeded++; else failed++;
-                    progress?.Report(new BulkProvisionProgress(completed, plans.Count, succeeded, failed));
+                    progress?.Report(new BulkConfigurationProgress(completed, plans.Count, succeeded, failed));
                 }
             }
             finally
@@ -196,8 +205,8 @@ public sealed class BulkProvisioningService
         return results;
     }
 
-    private async Task<CameraProvisionResult> ProvisionOneAsync(
-        CameraProvisionPlan plan, BulkProvisionOptions options, CancellationToken cancellationToken)
+    private async Task<CameraConfigurationResult> ConfigureOneAsync(
+        CameraConfigurationPlan plan, BulkConfigurationOptions options, CancellationToken cancellationToken)
     {
         var target = plan.Target;
         var steps = new List<string>();
@@ -243,7 +252,9 @@ public sealed class BulkProvisioningService
                     }
                 }
             }
-            if ((options.VideoCodec is not null || options.VideoResolution is not null) && videoFactory is not null)
+            var changeVideo = options.VideoCodec is not null || options.VideoResolution is not null
+                || options.VideoFrameRate is not null || options.VideoBitrateKbps is not null;
+            if (changeVideo && videoFactory is not null)
             {
                 using var video = videoFactory(target.DeviceEndpoint);
                 foreach (var encoder in await video.GetEncodersAsync(cancellationToken))
@@ -267,19 +278,26 @@ public sealed class BulkProvisioningService
                             ? encoder.CurrentResolution : codec.Resolutions.OrderByDescending(Area).First();
                     }
 
+                    // Frame rate + bitrate: clamp the request into what this codec/encoder supports;
+                    // null means "leave unchanged" (the media client won't touch that field).
+                    float? frameRate = options.VideoFrameRate is { } wantFps ? ClampFrameRate(codec, wantFps) : null;
+                    int? bitrate = options.VideoBitrateKbps is { } wantBps ? ClampBitrate(codec, wantBps) : null;
+
                     var applied = options.DryRun
-                        ? new VideoEncoderState(switchTo ?? encoder.CurrentCodec, resolution, encoder.CurrentFrameRate)
-                        : await video.ApplyAsync(encoder.ConfigurationToken, switchTo, resolution, null, cancellationToken);
+                        ? new VideoEncoderState(switchTo ?? encoder.CurrentCodec, resolution,
+                            frameRate ?? encoder.CurrentFrameRate, bitrate ?? encoder.CurrentBitrate)
+                        : await video.ApplyAsync(encoder.ConfigurationToken, switchTo, resolution, frameRate, bitrate, cancellationToken);
                     var outcome = new VideoEncoderOutcome(encoder.ConfigurationToken,
-                        options.VideoCodec ?? applied.Codec, resolution, null,
-                        applied.Codec, applied.Resolution, applied.FrameRate);
+                        options.VideoCodec ?? applied.Codec, resolution, frameRate,
+                        applied.Codec, applied.Resolution, applied.FrameRate,
+                        options.VideoBitrateKbps, applied.Bitrate);
                     videoOutcomes.Add(outcome);
-                    steps.Add($"{(options.DryRun ? "would set " : "")}video[{encoder.ConfigurationToken}]={applied.Codec} {Format(applied.Resolution)}{FrameRateSuffix(applied.FrameRate)}"
+                    steps.Add($"{(options.DryRun ? "would set " : "")}video[{encoder.ConfigurationToken}]={applied.Codec} {Format(applied.Resolution)}{FrameRateSuffix(applied.FrameRate)}{BitrateSuffix(applied.Bitrate)}"
                         + (outcome.CodecFallback ? " (codec fallback)" : "")
                         + (!options.DryRun && outcome.ClampedByCamera ? " (camera-limited)" : ""));
                 }
             }
-            return new CameraProvisionResult(target.Address, target.Site, target.Area, true, steps, null, videoOutcomes);
+            return new CameraConfigurationResult(target.Address, target.Site, target.Area, true, steps, null, videoOutcomes);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -287,17 +305,17 @@ public sealed class BulkProvisioningService
         }
         catch (Exception error)
         {
-            return new CameraProvisionResult(target.Address, target.Site, target.Area, false, steps, Describe(error), videoOutcomes);
+            return new CameraConfigurationResult(target.Address, target.Site, target.Area, false, steps, Describe(error), videoOutcomes);
         }
     }
 
-    private CameraProvisionTarget Locate(IPAddress address, Uri endpoint)
+    private CameraConfigurationTarget Locate(IPAddress address, Uri endpoint)
     {
         var location = NetworkRanges.Locate(config, address);
-        return new CameraProvisionTarget(address, endpoint, location?.Site ?? "", location?.Area ?? "");
+        return new CameraConfigurationTarget(address, endpoint, location?.Site ?? "", location?.Area ?? "");
     }
 
-    private static (string Name, string? Hostname) DefaultNaming(CameraProvisionTarget target)
+    private static (string Name, string? Hostname) DefaultNaming(CameraConfigurationTarget target)
     {
         var name = string.Join(" ", new[] { target.Site, target.Area }.Where(part => part.Length > 0));
         if (name.Length == 0) name = target.Address.ToString();
@@ -337,9 +355,27 @@ public sealed class BulkProvisioningService
         .Replace(".", "", StringComparison.Ordinal)
         .ToUpperInvariant();
 
+    /// <summary>Pick the frame rate to write: an exact supported match, else the fastest supported
+    /// rate no quicker than requested, else the slowest the encoder offers. Passes the request
+    /// through unchanged when the encoder advertises no discrete rates.</summary>
+    private static float ClampFrameRate(CodecCapability codec, float requested)
+    {
+        if (codec.FrameRates.Count == 0) return requested;
+        var exact = codec.FrameRates.FirstOrDefault(rate => Math.Abs(rate - requested) < 0.001f);
+        if (exact > 0.001f) return exact;
+        var atOrBelow = codec.FrameRates.Where(rate => rate <= requested).ToList();
+        return atOrBelow.Count > 0 ? atOrBelow.Max() : codec.FrameRates.Min();
+    }
+
+    /// <summary>Clamp the requested bitrate (kbps) into the codec's advertised range so the media
+    /// client's validation won't reject it; passes it through when no range is advertised.</summary>
+    private static int ClampBitrate(CodecCapability codec, int requested) =>
+        codec.Bitrate is { } range ? Math.Clamp(requested, range.Minimum, range.Maximum) : requested;
+
     private static long Area(OnvifResolution resolution) => (long)resolution.Width * resolution.Height;
     private static string Format(OnvifResolution resolution) => $"{resolution.Width}x{resolution.Height}";
     private static string FrameRateSuffix(float? frameRate) => frameRate is { } fps ? $"@{fps:0.##}fps" : "";
+    private static string BitrateSuffix(int? bitrate) => bitrate is { } kbps ? $" {kbps}kbps" : "";
 
     private static Uri DefaultDeviceEndpoint(IPAddress address) =>
         new UriBuilder("http", address.ToString()) { Path = DeviceServicePath }.Uri;
@@ -358,9 +394,9 @@ public sealed class BulkProvisioningService
     };
 }
 
-/// <summary>Default <see cref="IProvisionableDevice"/> backed by ONVIF Device Management. Owns the
-/// underlying client and disposes it after the camera is provisioned.</summary>
-internal sealed class OnvifDeviceProvisioner(OnvifDeviceClient client) : IProvisionableDevice
+/// <summary>Default <see cref="IConfigurableDevice"/> backed by ONVIF Device Management. Owns the
+/// underlying client and disposes it after the camera is configured.</summary>
+internal sealed class OnvifDeviceConfigurator(OnvifDeviceClient client) : IConfigurableDevice
 {
     public Task SetNameAsync(string name, CancellationToken cancellationToken) =>
         client.SetCameraNameAsync(name, cancellationToken);
@@ -379,16 +415,16 @@ internal sealed class OnvifDeviceProvisioner(OnvifDeviceClient client) : IProvis
     public void Dispose() => client.Dispose();
 }
 
-/// <summary>Default <see cref="IProvisionableVideo"/>. Connects over ONVIF, discovers each encoder's
+/// <summary>Default <see cref="IConfigurableVideo"/>. Connects over ONVIF, discovers each encoder's
 /// supported resolutions, and applies changes through the media client's capability validation —
 /// which rejects any resolution the camera did not advertise.</summary>
-internal sealed class OnvifVideoProvisioner : IProvisionableVideo
+internal sealed class OnvifVideoConfigurator : IConfigurableVideo
 {
     private readonly Uri deviceEndpoint;
     private readonly OnvifCameraConnector connector;
     private OnvifCameraConnection? connection;
 
-    public OnvifVideoProvisioner(Uri deviceEndpoint, string username, string password)
+    public OnvifVideoConfigurator(Uri deviceEndpoint, string username, string password)
     {
         this.deviceEndpoint = deviceEndpoint;
         connector = new OnvifCameraConnector(username, password);
@@ -405,22 +441,23 @@ internal sealed class OnvifVideoProvisioner : IProvisionableVideo
                 config.Token, cancellationToken: cancellationToken);
             var codecs = options
                 .Select(option => new CodecCapability(option.Encoding,
-                    option.Resolutions.Distinct().ToArray(), option.FrameRates.Distinct().ToArray()))
+                    option.Resolutions.Distinct().ToArray(), option.FrameRates.Distinct().ToArray(), option.Bitrate))
                 .ToArray();
             encoders.Add(new VideoEncoderInfo(
-                config.Token, canSwitchCodec, config.Encoding, config.Resolution, config.FrameRateLimit, codecs));
+                config.Token, canSwitchCodec, config.Encoding, config.Resolution, config.FrameRateLimit,
+                codecs, config.BitrateLimit));
         }
         return encoders;
     }
 
     public async Task<VideoEncoderState> ApplyAsync(string configurationToken, string? codec,
-        OnvifResolution resolution, float? frameRate, CancellationToken cancellationToken)
+        OnvifResolution resolution, float? frameRate, int? bitrateKbps, CancellationToken cancellationToken)
     {
         await connection!.Video.UpdateVideoEncoderAsync(configurationToken, resolution.Width, resolution.Height,
-            framesPerSecond: frameRate, encoding: codec, cancellationToken: cancellationToken);
+            framesPerSecond: frameRate, bitrateKbps: bitrateKbps, encoding: codec, cancellationToken: cancellationToken);
         var applied = (await connection.Video.GetVideoEncoderConfigurationsAsync(
             configurationToken, cancellationToken: cancellationToken)).Single();
-        return new VideoEncoderState(applied.Encoding, applied.Resolution, applied.FrameRateLimit);
+        return new VideoEncoderState(applied.Encoding, applied.Resolution, applied.FrameRateLimit, applied.BitrateLimit);
     }
 
     public void Dispose() => connection?.Dispose();

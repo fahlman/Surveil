@@ -25,7 +25,7 @@ public sealed class CoreTests
         {
             Sites = [new Site { Name = "Kettler Hall", Ranges = [new NetworkRange { Name = "Ground", Cidr = "10.25.69.0/24" }] }],
         };
-        var service = new BulkProvisioningService(config, "admin", "pw");
+        var service = new BulkConfigurationService(config, "admin", "pw");
 
         var advertised = new Uri("http://10.25.69.14:8000/onvif/device_service");
         var targets = service.TargetsFrom(new (IPAddress, Uri?)[]
@@ -63,10 +63,10 @@ public sealed class CoreTests
                 new[] { new OnvifResolution(3840, 2160), new OnvifResolution(1920, 1080), new OnvifResolution(1280, 720) },
                 new[] { 30f }) });
         var video = new FakeVideo(new[] { encoder });
-        var service = new BulkProvisioningService(new SurveilConfig(), _ => new NoopDevice(), _ => video);
+        var service = new BulkConfigurationService(new SurveilConfig(), _ => new NoopDevice(), _ => video);
 
         var targets = service.TargetsFrom(new (IPAddress, Uri?)[] { (IPAddress.Parse("10.0.0.5"), null) });
-        await service.ProvisionAsync(targets, new BulkProvisionOptions
+        await service.ConfigureAsync(targets, new BulkConfigurationOptions
         {
             SetName = false, SetHostname = false, SetNtp = false, SkipUnknownLocation = false,
             VideoCodec = "H265", VideoResolution = new OnvifResolution(1920, 1080),
@@ -76,7 +76,7 @@ public sealed class CoreTests
         Assert.Equal("H265", video.AppliedCodec);  // switched
     }
 
-    private sealed class NoopDevice : IProvisionableDevice
+    private sealed class NoopDevice : IConfigurableDevice
     {
         public Task SetNameAsync(string name, CancellationToken cancellationToken) => Task.CompletedTask;
         public Task<bool> SetHostnameAsync(string hostname, CancellationToken cancellationToken) => Task.FromResult(false);
@@ -85,7 +85,7 @@ public sealed class CoreTests
         public void Dispose() { }
     }
 
-    private sealed class FakeVideo : IProvisionableVideo
+    private sealed class FakeVideo : IConfigurableVideo
     {
         private readonly IReadOnlyList<VideoEncoderInfo> encoders;
         public OnvifResolution? AppliedResolution { get; private set; }
@@ -93,7 +93,7 @@ public sealed class CoreTests
         public FakeVideo(IReadOnlyList<VideoEncoderInfo> encoders) => this.encoders = encoders;
         public Task<IReadOnlyList<VideoEncoderInfo>> GetEncodersAsync(CancellationToken cancellationToken) => Task.FromResult(encoders);
         public Task<VideoEncoderState> ApplyAsync(string configurationToken, string? codec, OnvifResolution resolution,
-            float? frameRate, CancellationToken cancellationToken)
+            float? frameRate, int? bitrateKbps, CancellationToken cancellationToken)
         {
             AppliedResolution = resolution;
             AppliedCodec = codec;

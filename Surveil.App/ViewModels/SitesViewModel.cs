@@ -47,6 +47,8 @@ public sealed partial class SitesViewModel : ObservableObject
         ("Model", c => Single(c.ModelName)),
         ("Codec", c => c.Codecs),
         ("Resolution", c => Single(c.ResolutionBucket)),
+        ("Frame rate", c => Single(c.FrameRateBucket)),
+        ("Bitrate", c => Single(c.BitrateBucket)),
         ("Capability", c => c.Capabilities),
         ("ONVIF", c => Single(c.MediaGen)),
         ("Sign-in", c => Single(c.SignInLabel)),
@@ -99,7 +101,7 @@ public sealed partial class SitesViewModel : ObservableObject
                 else AddCamera(UnmappedCameras, camera);
             }
             if (UnmappedCameras.Count > 0) UnmappedExpanded = true;
-            OnProvisionSelectionChanged();
+            OnConfigurationSelectionChanged();
             RebuildFacets();
         }
         catch (Exception ex)
@@ -235,7 +237,7 @@ public sealed partial class SitesViewModel : ObservableObject
                 AddCamera(range.Cameras, camera);
                 found++;
             }
-            OnProvisionSelectionChanged();  // scanned ranges were cleared — drop any stale selections
+            OnConfigurationSelectionChanged();  // scanned ranges were cleared — drop any stale selections
             RebuildFacets();
             _ = IdentifyFoundCamerasAsync();  // background: log in and read features
             StatusMessage = $"Found {found} camera(s) across {addressesByRange.Count} CIDR(s).";
@@ -296,7 +298,7 @@ public sealed partial class SitesViewModel : ObservableObject
                 }
             }
             if (UnmappedCameras.Count > 0) UnmappedExpanded = true;
-            OnProvisionSelectionChanged();  // Unmapped was rebuilt — drop any stale selections
+            OnConfigurationSelectionChanged();  // Unmapped was rebuilt — drop any stale selections
             RebuildFacets();
             _ = IdentifyFoundCamerasAsync();  // background: log in and read features
             StatusMessage = $"Discovered {result.Cameras.Count} camera(s) — {unmapped} unmapped.";
@@ -350,22 +352,23 @@ public sealed partial class SitesViewModel : ObservableObject
     private void AddCamera(ObservableCollection<CameraItem> cameras, CameraStatus camera, Uri? endpoint = null)
     {
         if (cameras.Any(c => c.Ip == camera.Ip)) return;  // dedupe by IP
-        cameras.Add(new CameraItem(camera, endpoint) { SelectionChanged = OnProvisionSelectionChanged });
+        cameras.Add(new CameraItem(camera, endpoint) { SelectionChanged = OnConfigurationSelectionChanged });
     }
 
-    /// <summary>Rebuild the provisioning target set from every ticked camera in the tree, carrying
-    /// each camera's advertised endpoint so provisioning connects exactly where it announced.</summary>
-    private void OnProvisionSelectionChanged()
+    /// <summary>Rebuild the configuration target set from every ticked camera in the tree, carrying
+    /// each camera's advertised endpoint so configuration connects exactly where it announced.</summary>
+    private void OnConfigurationSelectionChanged()
     {
-        var candidates = new List<ProvisionCandidate>();
+        var candidates = new List<ConfigurationCandidate>();
         var seen = new HashSet<string>();
         foreach (var cam in AllCameras())
         {
             if (!cam.IsSelected || !IPAddress.TryParse(cam.Ip, out var address) || !seen.Add(cam.Ip)) continue;
-            candidates.Add(new ProvisionCandidate(address, cam.Endpoint, cam.HasVideo,
-                cam.ModelName ?? "Unknown", cam.Codecs, cam.SupportedResolutions));
+            candidates.Add(new ConfigurationCandidate(address, cam.Endpoint, cam.HasVideo,
+                cam.ModelName ?? "Unknown", cam.Codecs, cam.SupportedResolutions,
+                cam.SupportedFrameRates, cam.BitrateRange));
         }
-        session.Provision.SetSelectedTargets(candidates);
+        session.Configuration.SetSelectedTargets(candidates);
     }
 
     /// <summary>First absolute URL from a space-separated WS-Discovery XAddrs list, or null.</summary>
@@ -466,7 +469,7 @@ public sealed partial class SitesViewModel : ObservableObject
         foreach (var group in Facets) group.RefreshHeader();
     }
 
-    /// <summary>Log into every not-yet-identified camera and read its features, using the Provision
+    /// <summary>Log into every not-yet-identified camera and read its features, using the configured
     /// credentials. Background enrichment: it doesn't set the busy state; each row shows its own
     /// per-camera login state instead. Bounded concurrency keeps it gentle on the network.</summary>
     private async Task IdentifyFoundCamerasAsync()
