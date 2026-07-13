@@ -12,7 +12,7 @@
 
     <Grid>
         <muxc:SplitView
-            x:Name="ProvisionDrawer"
+            x:Name="ConfigurationDrawer"
             PanePlacement="Right"
             DisplayMode="Inline"
             OpenPaneLength="460"
@@ -26,9 +26,9 @@
                     </Grid.RowDefinitions>
                     <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="10" Padding="16,12,16,8" VerticalAlignment="Center">
                         <FontIcon Glyph="&#xE9F9;" FontFamily="Segoe MDL2 Assets" FontSize="18" />
-                        <TextBlock Text="Provision" Style="{StaticResource SubtitleTextBlockStyle}" />
+                        <TextBlock Text="Configuration" Style="{StaticResource SubtitleTextBlockStyle}" />
                     </StackPanel>
-                    <views:ProvisionPanel Grid.Row="1" />
+                    <views:ConfigurationPanel Grid.Row="1" />
                 </Grid>
             </muxc:SplitView.Pane>
 

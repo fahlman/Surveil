@@ -208,7 +208,7 @@
                                                     </Button>
                                                 </Grid>
 
-                                                <!-- Cameras found in this CIDR (checkbox = provision target) -->
+                                                <!-- Cameras found in this CIDR (checkbox = configuration target) -->
                                                 <ItemsControl ItemsSource="{x:Bind Cameras}" Margin="30,0,0,4">
                                                     <ItemsControl.ItemTemplate>
                                                         <DataTemplate x:DataType="vm:CameraItem">

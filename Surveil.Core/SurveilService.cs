@@ -10,11 +10,12 @@ public sealed record CameraFeatures(
     OnvifDeviceInformation Info, OnvifMediaGeneration MediaGeneration,
     IReadOnlyList<string> Services, IReadOnlyList<CameraEncoderSummary> Encoders);
 
-/// <summary>One video encoder's capability summary: the codecs and resolutions it offers, and its
-/// top resolution/rate.</summary>
+/// <summary>One video encoder's capability summary: the codecs and resolutions it offers, its
+/// top resolution/rate, the discrete frame rates it supports, and its bitrate window (kbps).</summary>
 public sealed record CameraEncoderSummary(
     IReadOnlyList<string> Codecs, IReadOnlyList<OnvifResolution> Resolutions,
-    OnvifResolution MaxResolution, float? MaxFrameRate);
+    OnvifResolution MaxResolution, float? MaxFrameRate,
+    IReadOnlyList<float> FrameRates, OnvifRange<int>? Bitrate);
 
 public sealed class SurveilService
 {
@@ -118,7 +119,11 @@ public sealed class SurveilService
             var maxResolution = resolutions.OrderByDescending(r => (long)r.Width * r.Height).First();
             var frameRates = options.SelectMany(o => o.FrameRates).ToList();
             float? maxFrameRate = frameRates.Count > 0 ? frameRates.Max() : config.FrameRateLimit;
-            summaries.Add(new CameraEncoderSummary(codecs, resolutions, maxResolution, maxFrameRate));
+            var distinctRates = frameRates.Distinct().OrderByDescending(r => r).ToList();
+            OnvifRange<int>? bitrate = options.Count > 0
+                ? new OnvifRange<int>(options.Min(o => o.Bitrate.Minimum), options.Max(o => o.Bitrate.Maximum))
+                : config.BitrateLimit is { } limit ? new OnvifRange<int>(limit, limit) : null;
+            summaries.Add(new CameraEncoderSummary(codecs, resolutions, maxResolution, maxFrameRate, distinctRates, bitrate));
         }
         return summaries;
     }

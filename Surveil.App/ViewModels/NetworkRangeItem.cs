@@ -20,7 +20,7 @@ public sealed partial class NetworkRangeItem : ObservableObject
     /// <summary>The site this range belongs to (for add-sibling, remove, and selection roll-up).</summary>
     public SiteItem? Parent { get; set; }
 
-    /// <summary>Cameras found in this CIDR by the most recent scan (each with a provision checkbox).</summary>
+    /// <summary>Cameras found in this CIDR by the most recent scan (each with a selection checkbox).</summary>
     public ObservableCollection<CameraItem> Cameras { get; } = new();
 
     public NetworkRangeItem(NetworkRange range, SiteItem? parent = null, bool editing = false)

@@ -5,14 +5,14 @@ using Xunit;
 
 namespace Surveil.Core.Tests;
 
-public sealed class BulkProvisioningTests
+public sealed class BulkConfigurationTests
 {
     [Fact]
     public async Task DerivesIdentityFromSiteMapThenAppliesAndVerifies()
     {
         var config = Config("Example Hall", "Second Floor", "10.200.62.0/24");
         var devices = new ConcurrentDictionary<string, RecordingDevice>();
-        var service = new BulkProvisioningService(config, endpoint => devices[endpoint.Host] = new RecordingDevice());
+        var service = new BulkConfigurationService(config, endpoint => devices[endpoint.Host] = new RecordingDevice());
 
         var targets = service.TargetsFromAddresses([IPAddress.Parse("10.200.62.137")]);
 
@@ -20,7 +20,7 @@ public sealed class BulkProvisioningTests
         Assert.Equal("Example Hall Second Floor", plan.Name);
         Assert.Equal("example-hall-second-floor-137", plan.Hostname);
 
-        var result = Assert.Single(await service.ProvisionAsync(targets));
+        var result = Assert.Single(await service.ConfigureAsync(targets));
         Assert.True(result.Success);
         Assert.Equal("Example Hall", result.Site);
         Assert.Equal(
@@ -37,14 +37,14 @@ public sealed class BulkProvisioningTests
     public async Task ReportsPerCameraFailuresWithoutStoppingTheBatch()
     {
         var config = Config("Hall", "Main", "10.200.62.0/24");
-        var service = new BulkProvisioningService(config, endpoint =>
+        var service = new BulkConfigurationService(config, endpoint =>
             endpoint.Host.EndsWith(".66")
                 ? new RecordingDevice { FailWith = new OnvifException(HttpStatusCode.Unauthorized, "denied") }
                 : new RecordingDevice());
 
         var targets = service.TargetsFromAddresses(
             [IPAddress.Parse("10.200.62.65"), IPAddress.Parse("10.200.62.66")]);
-        var results = await service.ProvisionAsync(targets);
+        var results = await service.ConfigureAsync(targets);
 
         Assert.Equal(2, results.Count);
         Assert.True(results.Single(item => item.Address.ToString() == "10.200.62.65").Success);
@@ -58,12 +58,12 @@ public sealed class BulkProvisioningTests
     public async Task SkipsCamerasOutsideTheSiteMapByDefault()
     {
         var config = Config("Hall", "Main", "10.200.62.0/24");
-        var service = new BulkProvisioningService(config, _ => new RecordingDevice());
+        var service = new BulkConfigurationService(config, _ => new RecordingDevice());
 
         var targets = service.TargetsFromAddresses([IPAddress.Parse("192.168.99.5")]);
         Assert.False(Assert.Single(targets).LocationKnown);
 
-        Assert.Empty(await service.ProvisionAsync(targets));
+        Assert.Empty(await service.ConfigureAsync(targets));
         Assert.Single(service.Plan(targets, includeUnknownLocation: true));
     }
 
@@ -72,27 +72,27 @@ public sealed class BulkProvisioningTests
     {
         var config = Config("Hall", "Main", "10.200.62.0/24");
         var devices = new ConcurrentDictionary<string, RecordingDevice>();
-        var service = new BulkProvisioningService(config, endpoint => devices[endpoint.Host] = new RecordingDevice());
-        var updates = new List<BulkProvisionProgress>();
+        var service = new BulkConfigurationService(config, endpoint => devices[endpoint.Host] = new RecordingDevice());
+        var updates = new List<BulkConfigurationProgress>();
 
         var targets = service.TargetsFromAddresses([IPAddress.Parse("10.200.62.10")]);
-        var results = await service.ProvisionAsync(targets,
-            new BulkProvisionOptions { SetHostname = false, SetNtp = false },
-            new InlineProgress<BulkProvisionProgress>(updates.Add));
+        var results = await service.ConfigureAsync(targets,
+            new BulkConfigurationOptions { SetHostname = false, SetNtp = false },
+            new InlineProgress<BulkConfigurationProgress>(updates.Add));
 
         var device = devices["10.200.62.10"];
         Assert.Equal("Hall Main", device.Name);
         Assert.Null(device.Hostname);
         Assert.False(device.NtpApplied);
         Assert.Equal(["name=Hall Main"], Assert.Single(results).Steps);
-        Assert.Equal(new BulkProvisionProgress(1, 1, 1, 0), updates[^1]);
+        Assert.Equal(new BulkConfigurationProgress(1, 1, 1, 0), updates[^1]);
     }
 
     [Fact]
     public void SlugifiesPunctuationIntoASingleDnsSafeLabel()
     {
         var config = Config("Loading Dock", "Bay #2 / North", "10.200.63.0/24");
-        var service = new BulkProvisioningService(config, _ => new RecordingDevice());
+        var service = new BulkConfigurationService(config, _ => new RecordingDevice());
 
         var plan = Assert.Single(service.Plan(service.TargetsFromAddresses([IPAddress.Parse("10.200.63.5")])));
         Assert.Equal("loading-dock-bay-2-north-5", plan.Hostname);
@@ -106,7 +106,7 @@ public sealed class BulkProvisioningTests
         var hd = new OnvifResolution(1920, 1080);
         var uhd = new OnvifResolution(3840, 2160);
         FakeVideo? fake = null;
-        var service = new BulkProvisioningService(config,
+        var service = new BulkConfigurationService(config,
             deviceFactory: _ => new RecordingDevice(),
             videoFactory: _ => fake = new FakeVideo(new[]
             {
@@ -116,15 +116,63 @@ public sealed class BulkProvisioningTests
                     new[] { new CodecCapability("H264", new[] { new OnvifResolution(640, 480), vga }, new[] { 30f, 25f }) }),
             }));
 
-        var result = Assert.Single(await service.ProvisionAsync(
+        var result = Assert.Single(await service.ConfigureAsync(
             service.TargetsFromAddresses([IPAddress.Parse("10.200.62.5")]),
-            new BulkProvisionOptions { SetName = false, SetHostname = false, SetNtp = false, VideoResolution = uhd }));
+            new BulkConfigurationOptions { SetName = false, SetHostname = false, SetNtp = false, VideoResolution = uhd }));
 
         Assert.True(result.Success);
         // Each stream capped to the largest it supports no bigger than the request; codec left alone.
         Assert.Equal(uhd, fake!.Applied.Single(a => a.Token == "main").Resolution);
         Assert.Equal(vga, fake.Applied.Single(a => a.Token == "sub").Resolution);
         Assert.Null(fake.Applied.Single(a => a.Token == "main").Codec);   // no codec switch requested
+    }
+
+    [Fact]
+    public async Task ClampsFrameRateToNearestSupportedAtOrBelow()
+    {
+        var config = Config("Hall", "Main", "10.200.62.0/24");
+        var hd = new OnvifResolution(1920, 1080);
+        FakeVideo? fake = null;
+        var service = new BulkConfigurationService(config,
+            deviceFactory: _ => new RecordingDevice(),
+            videoFactory: _ => fake = new FakeVideo(new[]
+            {
+                // "main" tops out at 25; "sub" offers exactly 30.
+                new VideoEncoderInfo("main", true, "H264", hd, 25f,
+                    new[] { new CodecCapability("H264", new[] { hd }, new[] { 25f, 15f }) }),
+                new VideoEncoderInfo("sub", true, "H264", hd, 15f,
+                    new[] { new CodecCapability("H264", new[] { hd }, new[] { 30f, 15f }) }),
+            }));
+
+        var result = Assert.Single(await service.ConfigureAsync(
+            service.TargetsFromAddresses([IPAddress.Parse("10.200.62.5")]),
+            new BulkConfigurationOptions { SetName = false, SetHostname = false, SetNtp = false, VideoFrameRate = 30f }));
+
+        Assert.True(result.Success);
+        Assert.Equal(25f, fake!.Applied.Single(a => a.Token == "main").FrameRate);  // clamped down to 25
+        Assert.Equal(30f, fake.Applied.Single(a => a.Token == "sub").FrameRate);    // exact match kept
+    }
+
+    [Fact]
+    public async Task ClampsBitrateIntoAdvertisedRange()
+    {
+        var config = Config("Hall", "Main", "10.200.62.0/24");
+        var hd = new OnvifResolution(1920, 1080);
+        FakeVideo? fake = null;
+        var service = new BulkConfigurationService(config,
+            deviceFactory: _ => new RecordingDevice(),
+            videoFactory: _ => fake = new FakeVideo(new[]
+            {
+                new VideoEncoderInfo("main", true, "H264", hd, 30f,
+                    new[] { new CodecCapability("H264", new[] { hd }, new[] { 30f }, new OnvifRange<int>(512, 4096)) }),
+            }));
+
+        var result = Assert.Single(await service.ConfigureAsync(
+            service.TargetsFromAddresses([IPAddress.Parse("10.200.62.5")]),
+            new BulkConfigurationOptions { SetName = false, SetHostname = false, SetNtp = false, VideoBitrateKbps = 8000 }));
+
+        Assert.True(result.Success);
+        Assert.Equal(4096, fake!.Applied.Single().Bitrate);  // clamped to the top of the advertised range
     }
 
     [Fact]
@@ -138,11 +186,11 @@ public sealed class BulkProvisioningTests
             new[] { new VideoEncoderInfo("main", true, "H264", hd, 30f,
                 new[] { new CodecCapability("H264", new[] { uhd, hd }, new[] { 30f }) }) },
             camera: (codec, resolution, frameRate) => new VideoEncoderState(codec ?? "H264", hd, frameRate));
-        var service = new BulkProvisioningService(config, deviceFactory: _ => new RecordingDevice(), videoFactory: _ => fake);
+        var service = new BulkConfigurationService(config, deviceFactory: _ => new RecordingDevice(), videoFactory: _ => fake);
 
-        var result = Assert.Single(await service.ProvisionAsync(
+        var result = Assert.Single(await service.ConfigureAsync(
             service.TargetsFromAddresses([IPAddress.Parse("10.200.62.5")]),
-            new BulkProvisionOptions { SetName = false, SetHostname = false, SetNtp = false, VideoResolution = uhd }));
+            new BulkConfigurationOptions { SetName = false, SetHostname = false, SetNtp = false, VideoResolution = uhd }));
 
         var outcome = result.Video.Single();
         Assert.Equal(uhd, outcome.RequestedResolution);
@@ -156,7 +204,7 @@ public sealed class BulkProvisioningTests
         var config = Config("Hall", "Main", "10.200.62.0/24");
         var hd = new OnvifResolution(1920, 1080);
         var uhd = new OnvifResolution(3840, 2160);
-        var service = new BulkProvisioningService(config,
+        var service = new BulkConfigurationService(config,
             deviceFactory: _ => new RecordingDevice(),
             videoFactory: endpoint =>
             {
@@ -168,9 +216,9 @@ public sealed class BulkProvisioningTests
                     camera: (codec, resolution, frameRate) => new VideoEncoderState(codec ?? "H264", resolution, frameRate));
             });
 
-        var results = await service.ProvisionAsync(
+        var results = await service.ConfigureAsync(
             service.TargetsFromAddresses([IPAddress.Parse("10.200.62.1"), IPAddress.Parse("10.200.62.2")]),
-            new BulkProvisionOptions { SetName = false, SetHostname = false, SetNtp = false, VideoCodec = "H265", VideoResolution = uhd });
+            new BulkConfigurationOptions { SetName = false, SetHostname = false, SetNtp = false, VideoCodec = "H265", VideoResolution = uhd });
 
         var preferred = results.Single(r => r.Address.ToString() == "10.200.62.1").Video.Single();
         Assert.Equal("H265", preferred.AppliedCodec);
@@ -191,7 +239,7 @@ public sealed class BulkProvisioningTests
         var hd = new OnvifResolution(1920, 1080);
         // Legacy camera advertises H.265 but cannot switch codec (CanSwitchCodec = false).
         FakeVideo? fake = null;
-        var service = new BulkProvisioningService(config,
+        var service = new BulkConfigurationService(config,
             deviceFactory: _ => new RecordingDevice(),
             videoFactory: _ => fake = new FakeVideo(
                 new[] { new VideoEncoderInfo("main", false, "H264", hd, 30f, new[]
@@ -201,9 +249,9 @@ public sealed class BulkProvisioningTests
                 }) },
                 camera: (codec, resolution, frameRate) => new VideoEncoderState(codec ?? "H264", resolution, frameRate)));
 
-        var result = Assert.Single(await service.ProvisionAsync(
+        var result = Assert.Single(await service.ConfigureAsync(
             service.TargetsFromAddresses([IPAddress.Parse("10.200.62.9")]),
-            new BulkProvisionOptions { SetName = false, SetHostname = false, SetNtp = false, VideoCodec = "H265", VideoResolution = hd }));
+            new BulkConfigurationOptions { SetName = false, SetHostname = false, SetNtp = false, VideoCodec = "H265", VideoResolution = hd }));
 
         var outcome = result.Video.Single();
         Assert.Equal("H264", outcome.AppliedCodec);      // stayed on its current codec
@@ -218,7 +266,7 @@ public sealed class BulkProvisioningTests
         var hd = new OnvifResolution(1920, 1080);
         var uhd = new OnvifResolution(3840, 2160);
         FakeVideo? fake = null;
-        var service = new BulkProvisioningService(config,
+        var service = new BulkConfigurationService(config,
             deviceFactory: _ => new RecordingDevice(),
             videoFactory: _ => fake = new FakeVideo(new[]
             {
@@ -229,9 +277,9 @@ public sealed class BulkProvisioningTests
                 }),
             }));
 
-        var result = Assert.Single(await service.ProvisionAsync(
+        var result = Assert.Single(await service.ConfigureAsync(
             service.TargetsFromAddresses([IPAddress.Parse("10.200.62.5")]),
-            new BulkProvisionOptions { SetName = true, SetHostname = false, SetNtp = false, VideoCodec = "H265", VideoResolution = uhd, DryRun = true }));
+            new BulkConfigurationOptions { SetName = true, SetHostname = false, SetNtp = false, VideoCodec = "H265", VideoResolution = uhd, DryRun = true }));
 
         Assert.True(result.Success);
         Assert.Empty(fake!.Applied);                                   // nothing written to the camera
@@ -244,7 +292,7 @@ public sealed class BulkProvisioningTests
     private static SurveilConfig Config(string building, string area, string cidr) =>
         new() { Sites = [new Site { Name = building, Ranges = [new NetworkRange { Name = area, Cidr = cidr }] }] };
 
-    private sealed class FakeVideo : IProvisionableVideo
+    private sealed class FakeVideo : IConfigurableVideo
     {
         private readonly VideoEncoderInfo[] encoders;
         private readonly Func<string?, OnvifResolution, float?, VideoEncoderState>? camera;
@@ -257,15 +305,15 @@ public sealed class BulkProvisioningTests
             this.camera = camera;
         }
 
-        public List<(string Token, string? Codec, OnvifResolution Resolution, float? FrameRate)> Applied { get; } = [];
+        public List<(string Token, string? Codec, OnvifResolution Resolution, float? FrameRate, int? Bitrate)> Applied { get; } = [];
 
         public Task<IReadOnlyList<VideoEncoderInfo>> GetEncodersAsync(CancellationToken cancellationToken) =>
             Task.FromResult<IReadOnlyList<VideoEncoderInfo>>(encoders);
 
         public Task<VideoEncoderState> ApplyAsync(string configurationToken, string? codec, OnvifResolution resolution,
-            float? frameRate, CancellationToken cancellationToken)
+            float? frameRate, int? bitrateKbps, CancellationToken cancellationToken)
         {
-            Applied.Add((configurationToken, codec, resolution, frameRate));
+            Applied.Add((configurationToken, codec, resolution, frameRate, bitrateKbps));
             return Task.FromResult(camera?.Invoke(codec, resolution, frameRate)
                 ?? new VideoEncoderState(codec ?? "H264", resolution, frameRate));
         }
@@ -273,7 +321,7 @@ public sealed class BulkProvisioningTests
         public void Dispose() { }
     }
 
-    private sealed class RecordingDevice : IProvisionableDevice
+    private sealed class RecordingDevice : IConfigurableDevice
     {
         public Exception? FailWith { get; init; }
         public string? Name { get; private set; }

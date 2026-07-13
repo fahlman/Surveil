@@ -6,7 +6,7 @@ namespace Surveil.App.Controls;
 
 /// <summary>A minimal horizontal wrap panel (WinUI has none built in): lays children left-to-right
 /// and wraps to a new row when the next child would overflow the available width. Used for the
-/// facet bar so the filters stack instead of running off past the Provision panel.</summary>
+/// facet bar so the filters stack instead of running off past the Configuration panel.</summary>
 public sealed class WrapPanel : Panel
 {
     public double HorizontalSpacing { get; set; }

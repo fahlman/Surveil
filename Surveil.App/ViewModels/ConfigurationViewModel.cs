@@ -7,10 +7,10 @@ using Surveil.Core;
 
 namespace Surveil.App.ViewModels;
 
-/// <summary>Bulk-provisions cameras: derives name/hostname from the site map, optionally
-/// maximizes video (codec preference, resolution-first), and reports a truthful per-camera
-/// outcome. Supports a dry-run that reads capabilities but writes nothing.</summary>
-public sealed partial class ProvisionViewModel : ObservableObject
+/// <summary>Backs the Configuration drawer: collects the settings to apply (identity, NTP, video)
+/// as the shared intersection of the selected cameras' capabilities, then applies them to every
+/// ticked camera and appends a truthful per-camera outcome to the configuration log.</summary>
+public sealed partial class ConfigurationViewModel : ObservableObject
 {
     private readonly AppSession session = AppSession.Current;
     private CancellationTokenSource? cts;
@@ -25,10 +25,16 @@ public sealed partial class ProvisionViewModel : ObservableObject
     [ObservableProperty] private string ntpServer = "";
     [ObservableProperty] private TimeZoneChoice? selectedTimeZone;
 
-    // Video — offered only when every selected camera has encoders. Codec + resolution are the shared
-    // intersection; "Leave unchanged" keeps each camera's current setting.
+    // Video — offered only when every selected camera has encoders. Codec + resolution + frame rate
+    // are the shared intersection; "Leave unchanged" keeps each camera's current setting. Bitrate is
+    // a value inside the shared window (NaN = leave unchanged).
     [ObservableProperty] private string selectedCodec = LeaveCodec;
     [ObservableProperty] private ResolutionChoice? selectedResolution;
+    [ObservableProperty] private FrameRateChoice? selectedFrameRate;
+    [ObservableProperty] private double bitrateKbps = double.NaN;
+    [ObservableProperty][NotifyPropertyChangedFor(nameof(BitrateRangeLabel))] private double bitrateMinKbps;
+    [ObservableProperty][NotifyPropertyChangedFor(nameof(BitrateRangeLabel))] private double bitrateMaxKbps;
+    [ObservableProperty][NotifyPropertyChangedFor(nameof(BitrateRangeLabel))] private bool canSetBitrate;
 
     [ObservableProperty] private bool isBusy;
     [ObservableProperty] private bool hasError;
@@ -39,8 +45,9 @@ public sealed partial class ProvisionViewModel : ObservableObject
 
     private const string LeaveCodec = "Leave unchanged";
     private static readonly ResolutionChoice LeaveResolution = new(null, "Leave unchanged");
+    private static readonly FrameRateChoice LeaveFrameRate = new(null, "Leave unchanged");
 
-    /// <summary>Number of cameras ticked in the Sites tree — the provisioning targets.</summary>
+    /// <summary>Number of cameras ticked in the Sites tree — the cameras settings apply to.</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(SelectedCameraSummary), nameof(AnyCamerasSelected), nameof(SingleCameraSelected))]
     private int selectedCameraCount;
@@ -72,6 +79,12 @@ public sealed partial class ProvisionViewModel : ObservableObject
     /// <summary>Resolutions shared by the whole selection (plus "Leave unchanged").</summary>
     public ObservableCollection<ResolutionChoice> AvailableResolutions { get; } = new();
 
+    /// <summary>Frame rates shared by the whole selection (plus "Leave unchanged").</summary>
+    public ObservableCollection<FrameRateChoice> AvailableFrameRates { get; } = new();
+
+    /// <summary>Caption under the bitrate box showing the window every selected camera can honor.</summary>
+    public string BitrateRangeLabel => CanSetBitrate ? $"Allowed {(int)BitrateMinKbps:N0}–{(int)BitrateMaxKbps:N0} kbps" : "";
+
     /// <summary>Friendly time-zone options; the camera syncs via NTP using the chosen zone.</summary>
     public IReadOnlyList<TimeZoneChoice> AvailableTimeZones { get; } = BuildTimeZones();
 
@@ -82,14 +95,11 @@ public sealed partial class ProvisionViewModel : ObservableObject
         _ => $"{SelectedCameraCount} cameras selected",
     };
 
-    private IReadOnlyList<ProvisionCandidate> selection = Array.Empty<ProvisionCandidate>();
-
-    public ObservableCollection<ProvisionPlanRow> Plans { get; } = new();
-    public ObservableCollection<ProvisionResultRow> Results { get; } = new();
+    private IReadOnlyList<ConfigurationCandidate> selection = Array.Empty<ConfigurationCandidate>();
 
     /// <summary>Called by the Sites tree whenever the camera selection changes: recomputes the shared
     /// (intersection) codec/resolution options and whether the Video section applies at all.</summary>
-    public void SetSelectedTargets(IReadOnlyList<ProvisionCandidate> newSelection)
+    public void SetSelectedTargets(IReadOnlyList<ConfigurationCandidate> newSelection)
     {
         selection = newSelection;
         SelectedCameraCount = newSelection.Count;
@@ -117,6 +127,30 @@ public sealed partial class ProvisionViewModel : ObservableObject
         AvailableResolutions.Add(LeaveResolution);
         foreach (var r in resolutions) AvailableResolutions.Add(new ResolutionChoice(r, $"{r.Width} × {r.Height}"));
         SelectedResolution = AvailableResolutions.FirstOrDefault(choice => choice.Resolution == previousResolution) ?? LeaveResolution;
+
+        var previousFps = SelectedFrameRate?.Fps;
+        var frameRates = Intersection(selection.Select(camera => camera.FrameRates))
+            .OrderByDescending(r => r).ToList();
+        AvailableFrameRates.Clear();
+        AvailableFrameRates.Add(LeaveFrameRate);
+        foreach (var r in frameRates) AvailableFrameRates.Add(new FrameRateChoice(r, $"{Math.Round(r)} fps"));
+        SelectedFrameRate = AvailableFrameRates.FirstOrDefault(choice => choice.Fps == previousFps) ?? LeaveFrameRate;
+
+        // Bitrate window a single value can satisfy across the whole selection: only when every camera
+        // advertises a range and those ranges overlap (max of the mins ≤ min of the maxes).
+        var ranges = selection.Select(camera => camera.Bitrate).OfType<OnvifRange<int>>().ToList();
+        if (selection.Count > 0 && ranges.Count == selection.Count &&
+            ranges.Max(r => r.Minimum) is var lo && ranges.Min(r => r.Maximum) is var hi && lo <= hi)
+        {
+            BitrateMinKbps = lo;
+            BitrateMaxKbps = hi;
+            CanSetBitrate = true;
+        }
+        else
+        {
+            CanSetBitrate = false;
+            BitrateKbps = double.NaN;
+        }
 
         ShowVideoSection = selection.Count > 0 && selection.All(camera => camera.HasVideo);
         OnPropertyChanged(nameof(VideoHiddenNote));
@@ -154,50 +188,26 @@ public sealed partial class ProvisionViewModel : ObservableObject
     /// <summary>The selected camera IPs, for the pre-write confirmation dialog.</summary>
     public IReadOnlyList<string> SelectedIps => selection.Select(camera => camera.Address.ToString()).ToList();
 
-    public ProvisionViewModel()
+    public ConfigurationViewModel()
     {
         selectedResolution = LeaveResolution;
+        selectedFrameRate = LeaveFrameRate;
         selectedTimeZone = AvailableTimeZones[0];  // "Leave unchanged"
     }
 
-    /// <summary>Preview the derived name/hostname for each in-range camera without touching it.</summary>
-    [RelayCommand]
-    private void Preview()
-    {
-        Plans.Clear();
-        HasError = false;
-        try
-        {
-            var service = BuildService();
-            var provisionTargets = service.TargetsFrom(selection.Select(camera => (camera.Address, camera.Endpoint)));
-            var plans = service.Plan(provisionTargets, includeUnknownLocation: true);
-            foreach (var plan in plans) Plans.Add(new ProvisionPlanRow(plan));
-            StatusMessage = plans.Count == 0
-                ? "No targets. Check the addresses and the site map."
-                : $"{plans.Count} cameras planned.";
-        }
-        catch (Exception ex)
-        {
-            HasError = true;
-            StatusMessage = ex.Message;
-            AppLog.Write(ex);
-        }
-    }
-
     /// <summary>Apply the selected identity/NTP/video settings to the ticked cameras. Called from the
-    /// panel, which gates a real (non-dry-run) write behind a confirmation.</summary>
-    public async Task ProvisionAsync()
+    /// panel, which gates the write behind a confirmation; every outcome is appended to the log.</summary>
+    public async Task ApplyAsync()
     {
         if (IsBusy) return;
-        Results.Clear();
         HasError = false;
 
-        IReadOnlyList<CameraProvisionTarget> provisionTargets;
-        BulkProvisioningService service;
+        IReadOnlyList<CameraConfigurationTarget> configTargets;
+        BulkConfigurationService service;
         try
         {
             service = BuildService();
-            provisionTargets = service.TargetsFrom(selection.Select(camera => (camera.Address, camera.Endpoint)));
+            configTargets = service.TargetsFrom(selection.Select(camera => (camera.Address, camera.Endpoint)));
         }
         catch (Exception ex)
         {
@@ -207,7 +217,7 @@ public sealed partial class ProvisionViewModel : ObservableObject
             return;
         }
 
-        if (provisionTargets.Count == 0)
+        if (configTargets.Count == 0)
         {
             HasError = true;
             StatusMessage = "No targets. Enter addresses and confirm the site map.";
@@ -226,10 +236,10 @@ public sealed partial class ProvisionViewModel : ObservableObject
         IsBusy = true;
         ProgressIndeterminate = true;
         ProgressValue = 0;
-        StatusMessage = "Provisioning…";
+        StatusMessage = "Applying…";
         cts = new CancellationTokenSource();
 
-        var options = new BulkProvisionOptions
+        var options = new BulkConfigurationOptions
         {
             SetName = SingleCameraSelected && !string.IsNullOrWhiteSpace(Name),
             Name = Name.Trim(),
@@ -240,12 +250,15 @@ public sealed partial class ProvisionViewModel : ObservableObject
             NtpServer = string.IsNullOrWhiteSpace(NtpServer) ? null : NtpServer.Trim(),
             VideoCodec = ShowVideoSection && SelectedCodec != LeaveCodec ? SelectedCodec : null,
             VideoResolution = ShowVideoSection ? SelectedResolution?.Resolution : null,
-            SkipUnknownLocation = false,  // selection is explicit — provision exactly what's ticked
+            VideoFrameRate = ShowVideoSection ? SelectedFrameRate?.Fps : null,
+            VideoBitrateKbps = ShowVideoSection && CanSetBitrate && !double.IsNaN(BitrateKbps) && BitrateKbps > 0
+                ? (int)Math.Round(BitrateKbps) : null,
+            SkipUnknownLocation = false,  // selection is explicit — configure exactly what's ticked
             MaxConcurrency = Math.Max(1, session.Settings.MaxProvisionConcurrency),
             DryRun = false,
         };
 
-        var progress = new Progress<BulkProvisionProgress>(p =>
+        var progress = new Progress<BulkConfigurationProgress>(p =>
         {
             ProgressIndeterminate = false;
             ProgressMaximum = Math.Max(1, p.Total);
@@ -255,11 +268,10 @@ public sealed partial class ProvisionViewModel : ObservableObject
 
         try
         {
-            var results = await service.ProvisionAsync(provisionTargets, options, progress, cts.Token);
-            foreach (var result in results.OrderBy(r => r.Success).ThenBy(r => r.Address.ToString()))
-                Results.Add(new ProvisionResultRow(result));
+            var results = await service.ConfigureAsync(configTargets, options, progress, cts.Token);
+            LogResults(results);
             var ok = results.Count(r => r.Success);
-            StatusMessage = $"Done: {ok} ok, {results.Count - ok} failed of {results.Count}.";
+            StatusMessage = $"Done: {ok} ok, {results.Count - ok} failed of {results.Count}. Written to the configuration log.";
         }
         catch (OperationCanceledException)
         {
@@ -283,86 +295,40 @@ public sealed partial class ProvisionViewModel : ObservableObject
     [RelayCommand]
     private void Cancel() => cts?.Cancel();
 
-    private BulkProvisioningService BuildService() =>
+    private BulkConfigurationService BuildService() =>
         new(session.Config, session.Username, session.Password);
+
+    /// <summary>Append every camera's outcome — what changed, or the error — to the configuration log.</summary>
+    private static void LogResults(IReadOnlyList<CameraConfigurationResult> results)
+    {
+        var when = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+        ConfigurationLog.Write($"=== {when}  configuration: {results.Count(r => r.Success)} ok, {results.Count(r => !r.Success)} failed ===");
+        foreach (var result in results.OrderBy(r => r.Success).ThenBy(r => r.Address.ToString()))
+        {
+            var location = string.Join(" ", new[] { result.Site, result.Area }.Where(part => part.Length > 0));
+            var detail = result.Success
+                ? (result.Steps.Count > 0 ? string.Join("; ", result.Steps) : "(nothing to change)")
+                : $"ERROR {result.Error}";
+            ConfigurationLog.Write($"{when}  {(result.Success ? "OK  " : "FAIL")}  {result.Address}  [{location}]  {detail}");
+        }
+    }
 }
 
 /// <summary>A resolution option in the Video picker; a null <see cref="Resolution"/> means "Leave
 /// unchanged" (keep the camera's current resolution).</summary>
 public sealed record ResolutionChoice(OnvifResolution? Resolution, string Label);
 
+/// <summary>A frame-rate option in the Video picker; a null <see cref="Fps"/> means "Leave
+/// unchanged" (keep the camera's current frame rate).</summary>
+public sealed record FrameRateChoice(float? Fps, string Label);
+
 /// <summary>A time-zone option: a friendly label plus the ONVIF POSIX rule to write. Posix null means
 /// "this computer's zone" (resolved at write time); LeaveUnchanged skips the NTP zone/mode entirely.</summary>
 public sealed record TimeZoneChoice(string Label, string? Posix, bool LeaveUnchanged = false);
 
-/// <summary>A selected camera handed from the tree to the Provision panel, with just enough of its
-/// discovered features to compute the settable-capability intersection.</summary>
-public sealed record ProvisionCandidate(
+/// <summary>A selected camera handed from the tree to the Configuration panel, with just enough of
+/// its discovered features to compute the settable-capability intersection.</summary>
+public sealed record ConfigurationCandidate(
     IPAddress Address, Uri? Endpoint, bool HasVideo, string Model,
-    IReadOnlyList<string> Codecs, IReadOnlyList<OnvifResolution> Resolutions);
-
-/// <summary>Preview row: the identity that would be pushed to one camera.</summary>
-public sealed class ProvisionPlanRow
-{
-    public string Address { get; }
-    public string Location { get; }
-    public string Name { get; }
-    public string Hostname { get; }
-    public bool LocationKnown { get; }
-
-    public ProvisionPlanRow(CameraProvisionPlan plan)
-    {
-        Address = plan.Target.Address.ToString();
-        Location = Join(plan.Target.Site, plan.Target.Area);
-        Name = plan.Name;
-        Hostname = plan.Hostname ?? "—";
-        LocationKnown = plan.Target.LocationKnown;
-    }
-
-    private static string Join(string site, string area)
-    {
-        var parts = new[] { site, area }.Where(p => p.Length > 0);
-        var joined = string.Join(" · ", parts);
-        return joined.Length == 0 ? "(unknown)" : joined;
-    }
-}
-
-/// <summary>Result row: what actually happened to one camera, including video outcomes.</summary>
-public sealed class ProvisionResultRow
-{
-    public string Address { get; }
-    public string Location { get; }
-    public bool Success { get; }
-    public string Glyph => Success ? "" : ""; // CheckMark / Cancel
-    public string Steps { get; }
-    public string Error { get; }
-    public bool HasError => Error.Length > 0;
-    public string VideoSummary { get; }
-    public bool HasVideo => VideoSummary.Length > 0;
-
-    public ProvisionResultRow(CameraProvisionResult result)
-    {
-        Address = result.Address.ToString();
-        Location = ProvisionPlanRowLocation(result.Site, result.Area);
-        Success = result.Success;
-        Steps = string.Join("\n", result.Steps);
-        Error = result.Error ?? "";
-        VideoSummary = string.Join("\n", result.Video.Select(FormatVideo));
-    }
-
-    private static string ProvisionPlanRowLocation(string site, string area)
-    {
-        var joined = string.Join(" · ", new[] { site, area }.Where(p => p.Length > 0));
-        return joined.Length == 0 ? "(unknown)" : joined;
-    }
-
-    private static string FormatVideo(VideoEncoderOutcome v)
-    {
-        var fps = v.AppliedFrameRate is { } f ? $"@{f:0.##}fps" : "";
-        var flags = new List<string>();
-        if (v.CodecFallback) flags.Add("codec fallback");
-        if (v.ClampedByCamera) flags.Add("camera-limited");
-        var suffix = flags.Count > 0 ? $" ({string.Join(", ", flags)})" : "";
-        return $"{v.ConfigurationToken}: {v.AppliedCodec} {v.AppliedResolution.Width}×{v.AppliedResolution.Height}{fps}{suffix}";
-    }
-}
+    IReadOnlyList<string> Codecs, IReadOnlyList<OnvifResolution> Resolutions,
+    IReadOnlyList<float> FrameRates, OnvifRange<int>? Bitrate);

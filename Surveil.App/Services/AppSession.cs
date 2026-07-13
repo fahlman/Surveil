@@ -4,7 +4,7 @@ using Surveil.Core;
 namespace Surveil.App.Services;
 
 /// <summary>Process-wide state shared by every page: the core service, the loaded site
-/// map, and the ONVIF credentials used for provisioning. The password is held in memory only
+/// map, and the ONVIF credentials used to configure cameras. The password is held in memory only
 /// and is never written to disk.</summary>
 public sealed class AppSession
 {
@@ -21,7 +21,7 @@ public sealed class AppSession
     /// from disk on startup; persisted explicitly from the Sites page.</summary>
     public SurveilConfig Config { get; set; } = new();
 
-    /// <summary>ONVIF credentials for provisioning and camera connections (in-memory only).</summary>
+    /// <summary>ONVIF credentials for configuring and connecting to cameras (in-memory only).</summary>
     public string Username { get; set; }
     public string Password { get; set; } = "";
 
@@ -47,21 +47,21 @@ public sealed class AppSession
     public async Task LoadConfigAsync(CancellationToken cancellationToken = default) =>
         Config = await Service.GetConfigAsync(cancellationToken);
 
-    // --- Provision drawer (single shared instance so Scan/Discover can push targets to it) ---
+    // --- Configuration drawer (single shared instance so Scan/Discover can push targets to it) ---
 
-    private ProvisionViewModel? provision;
+    private ConfigurationViewModel? configuration;
 
-    /// <summary>The one Provision view model behind the right-side drawer. Created lazily so it
+    /// <summary>The one Configuration view model behind the right-side drawer. Created lazily so it
     /// isn't built during this singleton's own construction.</summary>
-    public ProvisionViewModel Provision => provision ??= new ProvisionViewModel();
+    public ConfigurationViewModel Configuration => configuration ??= new ConfigurationViewModel();
 
-    /// <summary>Raised when a page asks to open the Provision drawer (e.g. "Send to Provision").</summary>
-    public event Action? ProvisionDrawerRequested;
+    /// <summary>Raised when a page asks to open the Configuration drawer (e.g. "Send to Configuration").</summary>
+    public event Action? ConfigurationDrawerRequested;
 
-    /// <summary>Load addresses into the Provision panel and ask the shell to open the drawer.</summary>
-    public void RequestProvision(string targets)
+    /// <summary>Load addresses into the Configuration panel and ask the shell to open the drawer.</summary>
+    public void RequestConfiguration(string targets)
     {
-        Provision.Targets = targets;
-        ProvisionDrawerRequested?.Invoke();
+        Configuration.Targets = targets;
+        ConfigurationDrawerRequested?.Invoke();
     }
 }

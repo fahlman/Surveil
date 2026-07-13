@@ -24,7 +24,7 @@
 
         <CheckBox Grid.Column="0" MinWidth="0" VerticalAlignment="Center"
                   IsChecked="{Binding IsSelected, Mode=TwoWay}"
-                  ToolTipService.ToolTip="Select this camera to provision" />
+                  ToolTipService.ToolTip="Select this camera to configure" />
         <FontIcon Grid.Column="1" Glyph="&#xE722;" FontFamily="Segoe MDL2 Assets" FontSize="12" Opacity="0.7" VerticalAlignment="Center" />
         <TextBlock Grid.Column="2" Text="{Binding Ip}" FontFamily="Consolas" VerticalAlignment="Center" />
         <FontIcon Grid.Column="3" Glyph="{Binding StateGlyph}" FontFamily="Segoe MDL2 Assets" FontSize="12" VerticalAlignment="Center"
