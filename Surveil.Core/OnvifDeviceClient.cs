@@ -127,6 +127,21 @@ public sealed class OnvifDeviceClient : IDisposable
         CancellationToken cancellationToken = default) =>
         SetTimeAsync("Manual", daylightSavings, posixTimeZone, utcTime.ToUniversalTime(), cancellationToken);
 
+    /// <summary>Point the camera at a manual NTP server (ONVIF SetNTP). An IPv4 literal is sent as an
+    /// address; anything else as a DNS name.</summary>
+    public async Task SetNtpServerAsync(string server, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(server)) throw new ArgumentException("NTP server is required.", nameof(server));
+        server = server.Trim();
+        var isIpv4 = IPAddress.TryParse(server, out var address) &&
+                     address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork;
+        var manual = new XElement(D("NTPManual"),
+            new XElement(S("Type"), isIpv4 ? "IPv4" : "DNS"),
+            new XElement(isIpv4 ? S("IPv4Address") : S("DNSname"), server));
+        await SendAsync("SetNTP", new XElement(D("SetNTP"),
+            new XElement(D("FromDHCP"), false), manual), cancellationToken);
+    }
+
     private async Task SetTimeAsync(string type, bool daylight, string zone, DateTimeOffset? utc,
         CancellationToken cancellationToken)
     {

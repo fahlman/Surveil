@@ -17,26 +17,27 @@ public sealed partial class ProvisionPanel : UserControl
         DataContext = AppSession.Current.Provision;
     }
 
-    /// <summary>A real (non-dry-run) write to live cameras is gated behind a confirmation that spells
-    /// out exactly what will change on which cameras.</summary>
+    /// <summary>Every write to live cameras is gated behind a confirmation that spells out exactly
+    /// what will change on which cameras.</summary>
     private async void OnProvisionClick(object sender, RoutedEventArgs e)
     {
-        if (!Vm.DryRun && Vm.SelectedCameraCount > 0)
+        if (Vm.SelectedCameraCount > 0)
         {
             var actions = new List<string>();
-            if (Vm.SetName) actions.Add("name");
-            if (Vm.SetHostname) actions.Add("hostname");
-            if (Vm.SetNtp) actions.Add(string.IsNullOrWhiteSpace(Vm.NtpPosixTimeZone) ? "NTP (this PC's zone)" : $"NTP ({Vm.NtpPosixTimeZone})");
-            if (Vm.SetVideo && Vm.ShowVideoSection)
-                actions.Add($"video ({Vm.SelectedCodec}, up to {(Vm.SelectedResolution?.Resolution is { } r ? $"{r.Width}×{r.Height}" : "highest")})");
+            if (Vm.SingleCameraSelected && !string.IsNullOrWhiteSpace(Vm.Name)) actions.Add($"name = {Vm.Name.Trim()}");
+            if (Vm.SingleCameraSelected && !string.IsNullOrWhiteSpace(Vm.Hostname)) actions.Add($"hostname = {Vm.Hostname.Trim()}");
+            if (!string.IsNullOrWhiteSpace(Vm.NtpServer)) actions.Add($"NTP server = {Vm.NtpServer.Trim()}");
+            if (Vm.SelectedTimeZone is { LeaveUnchanged: false } tz) actions.Add($"time zone = {tz.Label}");
+            if (Vm.ShowVideoSection && Vm.SelectedCodec != "Leave unchanged") actions.Add($"codec = {Vm.SelectedCodec}");
+            if (Vm.ShowVideoSection && Vm.SelectedResolution?.Resolution is { } r) actions.Add($"resolution = {r.Width}×{r.Height}");
 
             var ips = Vm.SelectedIps;
             var shown = string.Join("\n", ips.Take(12).Select(ip => "   • " + ip));
             if (ips.Count > 12) shown += $"\n   … and {ips.Count - 12} more";
 
             var body = actions.Count == 0
-                ? "Nothing is selected to change — tick Set name, Set hostname, or Set NTP first."
-                : $"This is NOT a dry run. Will set {string.Join(", ", actions)} on:\n\n{shown}";
+                ? "Nothing is set to change — fill in a field (Name, NTP, Codec…) first."
+                : $"Apply {string.Join(", ", actions)} to:\n\n{shown}";
 
             var confirm = new ContentDialog
             {
@@ -46,6 +47,7 @@ public sealed partial class ProvisionPanel : UserControl
                 PrimaryButtonText = "Write",
                 CloseButtonText = "Cancel",
                 DefaultButton = ContentDialogButton.Close,  // default to Cancel — a live write should be deliberate
+                IsPrimaryButtonEnabled = actions.Count > 0,
             };
             if (await confirm.ShowAsync() != ContentDialogResult.Primary) return;
         }

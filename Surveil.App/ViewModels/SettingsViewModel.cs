@@ -17,7 +17,6 @@ public sealed partial class SettingsViewModel : ObservableObject
     [ObservableProperty] private int defaultTimeoutMs;
     [ObservableProperty] private int defaultConcurrency;
     [ObservableProperty] private int discoverTimeoutMs;
-    [ObservableProperty] private bool dryRunByDefault;
 
     [ObservableProperty] private string statusMessage = "";
     [ObservableProperty] private bool hasError;
@@ -33,7 +32,6 @@ public sealed partial class SettingsViewModel : ObservableObject
         defaultTimeoutMs = s.DefaultTimeoutMs;
         defaultConcurrency = s.DefaultConcurrency;
         discoverTimeoutMs = s.DiscoverTimeoutMs;
-        dryRunByDefault = s.DryRunByDefault;
     }
 
     [RelayCommand]
@@ -49,7 +47,6 @@ public sealed partial class SettingsViewModel : ObservableObject
                 DefaultTimeoutMs = DefaultTimeoutMs,
                 DefaultConcurrency = DefaultConcurrency,
                 DiscoverTimeoutMs = DiscoverTimeoutMs,
-                DryRunByDefault = DryRunByDefault,
             });
             HasError = false;
             StatusMessage = $"Saved to {System.IO.Path.Combine(DataDirectory, SettingsStore.FileName)}. New defaults apply to pages opened next.";

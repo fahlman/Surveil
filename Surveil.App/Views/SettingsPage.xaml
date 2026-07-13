@@ -27,7 +27,6 @@
                                    Opacity="0.6" TextWrapping="Wrap" Style="{StaticResource CaptionTextBlockStyle}" />
                     </StackPanel>
                     <muxc:NumberBox Header="Provision concurrency (cameras at once)" Value="{Binding MaxProvisionConcurrency, Mode=TwoWay}" Minimum="1" Maximum="64" SpinButtonPlacementMode="Compact" />
-                    <ToggleSwitch Header="Dry run by default" IsOn="{Binding DryRunByDefault, Mode=TwoWay}" OnContent="On" OffContent="Off" />
                 </StackPanel>
             </muxc:Expander>
 
