@@ -15,11 +15,7 @@ public sealed partial class ProvisionPanel : UserControl
     {
         InitializeComponent();
         DataContext = AppSession.Current.Provision;
-        Loaded += (_, _) => PasswordInput.Password = Vm.Password;
     }
-
-    // PasswordBox.Password can't be two-way bound (by design), so mirror it into the VM here.
-    private void OnPasswordChanged(object sender, RoutedEventArgs e) => Vm.Password = PasswordInput.Password;
 
     /// <summary>A real (non-dry-run) write to live cameras is gated behind a confirmation that spells
     /// out exactly what will change on which cameras.</summary>
