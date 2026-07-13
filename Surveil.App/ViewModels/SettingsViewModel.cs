@@ -17,7 +17,6 @@ public sealed partial class SettingsViewModel : ObservableObject
     [ObservableProperty] private int defaultTimeoutMs;
     [ObservableProperty] private int defaultConcurrency;
     [ObservableProperty] private int discoverTimeoutMs;
-    [ObservableProperty] private string preferredCodecs;
     [ObservableProperty] private bool dryRunByDefault;
 
     [ObservableProperty] private string statusMessage = "";
@@ -34,7 +33,6 @@ public sealed partial class SettingsViewModel : ObservableObject
         defaultTimeoutMs = s.DefaultTimeoutMs;
         defaultConcurrency = s.DefaultConcurrency;
         discoverTimeoutMs = s.DiscoverTimeoutMs;
-        preferredCodecs = s.PreferredCodecs;
         dryRunByDefault = s.DryRunByDefault;
     }
 
@@ -51,7 +49,6 @@ public sealed partial class SettingsViewModel : ObservableObject
                 DefaultTimeoutMs = DefaultTimeoutMs,
                 DefaultConcurrency = DefaultConcurrency,
                 DiscoverTimeoutMs = DiscoverTimeoutMs,
-                PreferredCodecs = PreferredCodecs.Trim(),
                 DryRunByDefault = DryRunByDefault,
             });
             HasError = false;

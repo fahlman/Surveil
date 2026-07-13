@@ -12,7 +12,6 @@ public sealed class AppSettings
     public int DefaultTimeoutMs { get; set; } = 400;
     public int DefaultConcurrency { get; set; } = 256;
     public int DiscoverTimeoutMs { get; set; } = 3000;
-    public string PreferredCodecs { get; set; } = "H265, H264";
     public bool DryRunByDefault { get; set; } = true;
 }
 
