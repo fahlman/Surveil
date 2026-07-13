@@ -357,14 +357,15 @@ public sealed partial class SitesViewModel : ObservableObject
     /// each camera's advertised endpoint so provisioning connects exactly where it announced.</summary>
     private void OnProvisionSelectionChanged()
     {
-        var targets = new List<(IPAddress Address, Uri? Endpoint)>();
+        var candidates = new List<ProvisionCandidate>();
         var seen = new HashSet<string>();
-        foreach (var cam in Sites.SelectMany(s => s.Children).SelectMany(r => r.Cameras).Concat(UnmappedCameras))
+        foreach (var cam in AllCameras())
         {
             if (!cam.IsSelected || !IPAddress.TryParse(cam.Ip, out var address) || !seen.Add(cam.Ip)) continue;
-            targets.Add((address, cam.Endpoint));
+            candidates.Add(new ProvisionCandidate(address, cam.Endpoint, cam.HasVideo,
+                cam.ModelName ?? "Unknown", cam.Codecs, cam.SupportedResolutions));
         }
-        session.Provision.SetSelectedTargets(targets);
+        session.Provision.SetSelectedTargets(candidates);
     }
 
     /// <summary>First absolute URL from a space-separated WS-Discovery XAddrs list, or null.</summary>

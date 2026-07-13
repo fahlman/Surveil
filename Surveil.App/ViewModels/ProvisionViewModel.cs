@@ -19,12 +19,18 @@ public sealed partial class ProvisionViewModel : ObservableObject
     [ObservableProperty] private string username;
     [ObservableProperty] private string password;
 
+    // Identity + time are ONVIF-universal — always offered when any camera is selected.
     [ObservableProperty] private bool setName = true;
     [ObservableProperty] private bool setHostname = true;
     [ObservableProperty] private bool setNtp = true;
-    [ObservableProperty] private bool maximizeVideo;
-    [ObservableProperty] private string preferredCodecs = "H265, H264";
     [ObservableProperty] private string ntpPosixTimeZone = "";
+
+    // Video — offered only when every selected camera has encoders (ShowVideoSection). The codec and
+    // "up to" resolution choices are the intersection across the whole selection.
+    [ObservableProperty] private bool setVideo;
+    [ObservableProperty] private string selectedCodec = AnyCodec;
+    [ObservableProperty] private ResolutionChoice? selectedResolution;
+
     [ObservableProperty] private int maxConcurrency = 8;
     [ObservableProperty] private bool dryRun = true;
 
@@ -35,10 +41,38 @@ public sealed partial class ProvisionViewModel : ObservableObject
     [ObservableProperty] private double progressMaximum = 1;
     [ObservableProperty] private bool progressIndeterminate;
 
-    /// <summary>Number of cameras ticked in the Sites tree — the provisioning targets.</summary>
-    [ObservableProperty][NotifyPropertyChangedFor(nameof(SelectedCameraSummary))] private int selectedCameraCount;
+    private const string AnyCodec = "Any (each keeps its own)";
+    private static readonly ResolutionChoice HighestResolution = new(null, "Highest available");
 
-    /// <summary>Human-readable line shown in place of the old free-text targets box.</summary>
+    /// <summary>Number of cameras ticked in the Sites tree — the provisioning targets.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(SelectedCameraSummary), nameof(AnyCamerasSelected))]
+    private int selectedCameraCount;
+
+    /// <summary>"12 cameras · 2 models" — shown at the top of the panel.</summary>
+    [ObservableProperty] private string selectionSummary = "";
+
+    /// <summary>Identity + Time are offered whenever at least one camera is selected.</summary>
+    public bool AnyCamerasSelected => SelectedCameraCount > 0;
+
+    /// <summary>True when every selected camera has encoders — the Video section is then offered.</summary>
+    [ObservableProperty][NotifyPropertyChangedFor(nameof(VideoHiddenNote))] private bool showVideoSection;
+
+    private bool someHaveVideo;
+
+    /// <summary>Explains a Video section that dropped out because the selection mixes cameras that
+    /// have encoders with ones that don't.</summary>
+    public string VideoHiddenNote =>
+        !ShowVideoSection && AnyCamerasSelected && someHaveVideo
+            ? "Video hidden — not every selected camera exposes it."
+            : "";
+
+    /// <summary>Codec choices shared by the whole selection (plus "Any").</summary>
+    public ObservableCollection<string> AvailableCodecs { get; } = new();
+
+    /// <summary>"Maximize up to" resolutions shared by the whole selection (plus "Highest available").</summary>
+    public ObservableCollection<ResolutionChoice> AvailableResolutions { get; } = new();
+
     public string SelectedCameraSummary => SelectedCameraCount switch
     {
         0 => "No cameras selected — tick cameras in the tree",
@@ -46,29 +80,67 @@ public sealed partial class ProvisionViewModel : ObservableObject
         _ => $"{SelectedCameraCount} cameras selected",
     };
 
-    /// <summary>The ticked cameras: address + the endpoint each advertised via discovery (null =
-    /// fall back to the standard path). Provisioning targets exactly these.</summary>
-    private IReadOnlyList<(IPAddress Address, Uri? Endpoint)> selectedTargets = Array.Empty<(IPAddress, Uri?)>();
+    private IReadOnlyList<ProvisionCandidate> selection = Array.Empty<ProvisionCandidate>();
 
     public ObservableCollection<ProvisionPlanRow> Plans { get; } = new();
     public ObservableCollection<ProvisionResultRow> Results { get; } = new();
 
-    /// <summary>Called by the Sites tree whenever the camera selection changes.</summary>
-    public void SetSelectedTargets(IReadOnlyList<(IPAddress Address, Uri? Endpoint)> targets)
+    /// <summary>Called by the Sites tree whenever the camera selection changes: recomputes the shared
+    /// (intersection) codec/resolution options and whether the Video section applies at all.</summary>
+    public void SetSelectedTargets(IReadOnlyList<ProvisionCandidate> newSelection)
     {
-        selectedTargets = targets;
-        SelectedCameraCount = targets.Count;
+        selection = newSelection;
+        SelectedCameraCount = newSelection.Count;
+        var models = newSelection.Select(camera => camera.Model).Distinct().Count();
+        SelectionSummary = newSelection.Count == 0 ? ""
+            : $"{newSelection.Count} camera{(newSelection.Count == 1 ? "" : "s")} · {models} model{(models == 1 ? "" : "s")}";
+        RecomputeVideoIntersection();
+    }
+
+    private void RecomputeVideoIntersection()
+    {
+        someHaveVideo = selection.Any(camera => camera.HasVideo);
+
+        var codecs = Intersection(selection.Select(camera => camera.Codecs))
+            .OrderBy(codec => codec, StringComparer.OrdinalIgnoreCase).ToList();
+        AvailableCodecs.Clear();
+        AvailableCodecs.Add(AnyCodec);
+        foreach (var codec in codecs) AvailableCodecs.Add(codec);
+        if (!AvailableCodecs.Contains(SelectedCodec)) SelectedCodec = AnyCodec;
+
+        var previousResolution = SelectedResolution?.Resolution;
+        var resolutions = Intersection(selection.Select(camera => camera.Resolutions))
+            .OrderByDescending(r => (long)r.Width * r.Height).ToList();
+        AvailableResolutions.Clear();
+        AvailableResolutions.Add(HighestResolution);
+        foreach (var r in resolutions) AvailableResolutions.Add(new ResolutionChoice(r, $"{r.Width} × {r.Height}"));
+        SelectedResolution = AvailableResolutions.FirstOrDefault(choice => choice.Resolution == previousResolution) ?? HighestResolution;
+
+        ShowVideoSection = selection.Count > 0 && selection.All(camera => camera.HasVideo);
+        if (!ShowVideoSection) SetVideo = false;
+        OnPropertyChanged(nameof(VideoHiddenNote));
+    }
+
+    private static IReadOnlyList<T> Intersection<T>(IEnumerable<IEnumerable<T>> sets)
+    {
+        HashSet<T>? accumulator = null;
+        foreach (var set in sets)
+        {
+            if (accumulator is null) accumulator = new HashSet<T>(set);
+            else accumulator.IntersectWith(set);
+        }
+        return accumulator?.ToList() ?? new List<T>();
     }
 
     /// <summary>The selected camera IPs, for the pre-write confirmation dialog.</summary>
-    public IReadOnlyList<string> SelectedIps => selectedTargets.Select(t => t.Address.ToString()).ToList();
+    public IReadOnlyList<string> SelectedIps => selection.Select(camera => camera.Address.ToString()).ToList();
 
     public ProvisionViewModel()
     {
         username = session.Username;
         password = session.Password;
-        preferredCodecs = session.Settings.PreferredCodecs;
         dryRun = session.Settings.DryRunByDefault;
+        selectedResolution = HighestResolution;
     }
 
     /// <summary>Preview the derived name/hostname for each in-range camera without touching it.</summary>
@@ -80,7 +152,7 @@ public sealed partial class ProvisionViewModel : ObservableObject
         try
         {
             var service = BuildService();
-            var provisionTargets = service.TargetsFrom(selectedTargets);
+            var provisionTargets = service.TargetsFrom(selection.Select(camera => (camera.Address, camera.Endpoint)));
             var plans = service.Plan(provisionTargets, includeUnknownLocation: true);
             foreach (var plan in plans) Plans.Add(new ProvisionPlanRow(plan));
             StatusMessage = plans.Count == 0
@@ -108,7 +180,7 @@ public sealed partial class ProvisionViewModel : ObservableObject
         try
         {
             service = BuildService();
-            provisionTargets = service.TargetsFrom(selectedTargets);
+            provisionTargets = service.TargetsFrom(selection.Select(camera => (camera.Address, camera.Endpoint)));
         }
         catch (Exception ex)
         {
@@ -127,7 +199,7 @@ public sealed partial class ProvisionViewModel : ObservableObject
 
         // Contacting cameras (any real write, or a dry run that reads video capabilities) needs a
         // username. A pure identity dry run never touches a camera, so credentials aren't required.
-        if ((!DryRun || MaximizeVideo) && string.IsNullOrWhiteSpace(Username))
+        if ((!DryRun || (SetVideo && ShowVideoSection)) && string.IsNullOrWhiteSpace(Username))
         {
             HasError = true;
             StatusMessage = "Enter the ONVIF username (needed to contact cameras).";
@@ -146,8 +218,9 @@ public sealed partial class ProvisionViewModel : ObservableObject
             SetHostname = SetHostname,
             SetNtp = SetNtp,
             NtpPosixTimeZone = string.IsNullOrWhiteSpace(NtpPosixTimeZone) ? null : NtpPosixTimeZone.Trim(),
-            MaximizeVideo = MaximizeVideo,
-            PreferredCodecs = ParseCodecs(PreferredCodecs),
+            MaximizeVideo = SetVideo && ShowVideoSection,
+            PreferredCodecs = SetVideo && SelectedCodec != AnyCodec ? new[] { SelectedCodec } : null,
+            MaxVideoResolution = SetVideo ? SelectedResolution?.Resolution : null,
             SkipUnknownLocation = false,  // selection is explicit — provision exactly what's ticked
             MaxConcurrency = Math.Max(1, MaxConcurrency),
             DryRun = DryRun,
@@ -197,13 +270,17 @@ public sealed partial class ProvisionViewModel : ObservableObject
         session.Password = Password;
         return new BulkProvisioningService(session.Config, Username, Password);
     }
-
-    private static IReadOnlyList<string>? ParseCodecs(string text)
-    {
-        var codecs = text.Split(new[] { ',', ' ', '/' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        return codecs.Length == 0 ? null : codecs;
-    }
 }
+
+/// <summary>A resolution option in the Video picker; a null <see cref="Resolution"/> means "Highest
+/// available" (no cap).</summary>
+public sealed record ResolutionChoice(OnvifResolution? Resolution, string Label);
+
+/// <summary>A selected camera handed from the tree to the Provision panel, with just enough of its
+/// discovered features to compute the settable-capability intersection.</summary>
+public sealed record ProvisionCandidate(
+    IPAddress Address, Uri? Endpoint, bool HasVideo, string Model,
+    IReadOnlyList<string> Codecs, IReadOnlyList<OnvifResolution> Resolutions);
 
 /// <summary>Preview row: the identity that would be pushed to one camera.</summary>
 public sealed class ProvisionPlanRow

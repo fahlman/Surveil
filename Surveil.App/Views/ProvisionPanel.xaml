@@ -46,30 +46,51 @@
                             <Border Padding="12,10" CornerRadius="6"
                                     Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
                                     BorderThickness="1" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}">
-                                <StackPanel Orientation="Horizontal" Spacing="10">
-                                    <FontIcon Glyph="&#xE722;" FontFamily="Segoe MDL2 Assets" FontSize="16" Opacity="0.7" VerticalAlignment="Center" />
-                                    <TextBlock Text="{Binding SelectedCameraSummary}" VerticalAlignment="Center" TextWrapping="Wrap" />
+                                <StackPanel Spacing="2">
+                                    <StackPanel Orientation="Horizontal" Spacing="10">
+                                        <FontIcon Glyph="&#xE722;" FontFamily="Segoe MDL2 Assets" FontSize="16" Opacity="0.7" VerticalAlignment="Center" />
+                                        <TextBlock Text="{Binding SelectedCameraSummary}" VerticalAlignment="Center" TextWrapping="Wrap" />
+                                    </StackPanel>
+                                    <TextBlock Text="{Binding SelectionSummary}" Opacity="0.6" FontSize="12" Margin="26,0,0,0"
+                                               Visibility="{Binding SelectionSummary, Converter={StaticResource StringToVis}}" />
                                 </StackPanel>
                             </Border>
                         </StackPanel>
 
-                        <muxc:Expander Header="Identity" IsExpanded="True" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
+                        <!-- Only settings the whole selection supports appear. Identity + Time are
+                             ONVIF-universal; Video shows only when every selected camera has encoders,
+                             with codec/resolution choices as the shared subset. -->
+                        <muxc:Expander Header="Identity" IsExpanded="True" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
+                                       Visibility="{Binding AnyCamerasSelected, Converter={StaticResource BoolToVis}}">
                             <StackPanel Spacing="8">
                                 <CheckBox Content="Set name" IsChecked="{Binding SetName, Mode=TwoWay}" />
                                 <CheckBox Content="Set hostname" IsChecked="{Binding SetHostname, Mode=TwoWay}" />
+                            </StackPanel>
+                        </muxc:Expander>
+
+                        <muxc:Expander Header="Time" IsExpanded="True" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
+                                       Visibility="{Binding AnyCamerasSelected, Converter={StaticResource BoolToVis}}">
+                            <StackPanel Spacing="8">
                                 <CheckBox Content="Set NTP" IsChecked="{Binding SetNtp, Mode=TwoWay}" />
                                 <TextBox Header="NTP POSIX time zone (blank = this computer)"
                                          Text="{Binding NtpPosixTimeZone, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
                             </StackPanel>
                         </muxc:Expander>
 
-                        <muxc:Expander Header="Video" IsExpanded="True" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
+                        <muxc:Expander Header="Video" IsExpanded="True" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
+                                       Visibility="{Binding ShowVideoSection, Converter={StaticResource BoolToVis}}">
                             <StackPanel Spacing="8">
-                                <CheckBox Content="Maximize video (resolution-first)" IsChecked="{Binding MaximizeVideo, Mode=TwoWay}" />
-                                <TextBox Header="Preferred codecs" IsEnabled="{Binding MaximizeVideo}"
-                                         Text="{Binding PreferredCodecs, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                                <CheckBox Content="Maximize video" IsChecked="{Binding SetVideo, Mode=TwoWay}" />
+                                <ComboBox Header="Codec" HorizontalAlignment="Stretch" IsEnabled="{Binding SetVideo}"
+                                          ItemsSource="{Binding AvailableCodecs}" SelectedItem="{Binding SelectedCodec, Mode=TwoWay}" />
+                                <ComboBox Header="Maximize up to" HorizontalAlignment="Stretch" IsEnabled="{Binding SetVideo}"
+                                          ItemsSource="{Binding AvailableResolutions}" SelectedItem="{Binding SelectedResolution, Mode=TwoWay}"
+                                          DisplayMemberPath="Label" />
                             </StackPanel>
                         </muxc:Expander>
+
+                        <muxc:InfoBar IsOpen="{Binding VideoHiddenNote, Converter={StaticResource StringToBool}}"
+                                      Severity="Informational" IsClosable="False" Message="{Binding VideoHiddenNote}" />
 
                         <muxc:NumberBox Header="Max concurrency" Value="{Binding MaxConcurrency, Mode=TwoWay}" Minimum="1" Maximum="64" SpinButtonPlacementMode="Compact" />
                         <ToggleSwitch Header="Dry run (read only, write nothing)" IsOn="{Binding DryRun, Mode=TwoWay}" OnContent="On" OffContent="Off" />

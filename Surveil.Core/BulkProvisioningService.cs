@@ -39,6 +39,9 @@ public sealed record BulkProvisionOptions
     /// wins, and resolution/frame rate are maximized within it. Null or empty leaves each encoder's
     /// codec unchanged. Cameras that cannot switch codec (legacy Media1) keep their current one.</summary>
     public IReadOnlyList<string>? PreferredCodecs { get; init; }
+    /// <summary>Cap for maximized resolution: the largest supported resolution no bigger than this is
+    /// chosen. Null maximizes to each encoder's highest.</summary>
+    public OnvifResolution? MaxVideoResolution { get; init; }
     /// <summary>Preview mode: read each camera's capabilities and report exactly what would be
     /// applied, but perform no writes. Capability reads still occur; nothing on the camera changes.</summary>
     public bool DryRun { get; init; }
@@ -234,7 +237,13 @@ public sealed class BulkProvisioningService
                 {
                     var codec = ChooseCodec(encoder, options.PreferredCodecs);
                     if (codec is null || codec.Resolutions.Count == 0) continue;
-                    var maxResolution = codec.Resolutions.OrderByDescending(Area).First();
+                    // Maximize, optionally capped: largest supported resolution no bigger than the cap.
+                    var withinCap = options.MaxVideoResolution is { } cap
+                        ? codec.Resolutions.Where(r => Area(r) <= Area(cap)).ToList()
+                        : codec.Resolutions.ToList();
+                    var maxResolution = withinCap.Count > 0
+                        ? withinCap.OrderByDescending(Area).First()
+                        : codec.Resolutions.OrderBy(Area).First();
                     float? maxFrameRate = codec.FrameRates.Count > 0 ? codec.FrameRates.Max() : null;
                     // Only pass a codec to switch to when it actually differs from the current one.
                     var switchTo = NormalizeCodec(codec.Codec) == NormalizeCodec(encoder.CurrentCodec) ? null : codec.Codec;

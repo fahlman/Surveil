@@ -55,6 +55,51 @@ public sealed class CoreTests
     }
 
     [Fact]
+    public async Task MaximizeVideoRespectsResolutionCap()
+    {
+        var encoder = new VideoEncoderInfo("enc-1", CanSwitchCodec: true, "H264",
+            new OnvifResolution(1280, 720), 30f,
+            new[] { new CodecCapability("H265",
+                new[] { new OnvifResolution(3840, 2160), new OnvifResolution(1920, 1080), new OnvifResolution(1280, 720) },
+                new[] { 30f }) });
+        var video = new FakeVideo(new[] { encoder });
+        var service = new BulkProvisioningService(new SurveilConfig(), _ => new NoopDevice(), _ => video);
+
+        var targets = service.TargetsFrom(new (IPAddress, Uri?)[] { (IPAddress.Parse("10.0.0.5"), null) });
+        await service.ProvisionAsync(targets, new BulkProvisionOptions
+        {
+            SetName = false, SetHostname = false, SetNtp = false, SkipUnknownLocation = false,
+            MaximizeVideo = true, PreferredCodecs = new[] { "H265" },
+            MaxVideoResolution = new OnvifResolution(1920, 1080),
+        });
+
+        Assert.Equal(new OnvifResolution(1920, 1080), video.AppliedResolution);  // capped, not 4K
+    }
+
+    private sealed class NoopDevice : IProvisionableDevice
+    {
+        public Task SetNameAsync(string name, CancellationToken cancellationToken) => Task.CompletedTask;
+        public Task<bool> SetHostnameAsync(string hostname, CancellationToken cancellationToken) => Task.FromResult(false);
+        public Task SetNtpAsync(string? posixTimeZone, CancellationToken cancellationToken) => Task.CompletedTask;
+        public void Dispose() { }
+    }
+
+    private sealed class FakeVideo : IProvisionableVideo
+    {
+        private readonly IReadOnlyList<VideoEncoderInfo> encoders;
+        public OnvifResolution? AppliedResolution { get; private set; }
+        public FakeVideo(IReadOnlyList<VideoEncoderInfo> encoders) => this.encoders = encoders;
+        public Task<IReadOnlyList<VideoEncoderInfo>> GetEncodersAsync(CancellationToken cancellationToken) => Task.FromResult(encoders);
+        public Task<VideoEncoderState> ApplyAsync(string configurationToken, string? codec, OnvifResolution resolution,
+            float? frameRate, CancellationToken cancellationToken)
+        {
+            AppliedResolution = resolution;
+            return Task.FromResult(new VideoEncoderState(codec ?? "H265", resolution, frameRate));
+        }
+        public void Dispose() { }
+    }
+
+    [Fact]
     public async Task DeviceManagementSetsAndVerifiesHostnameWithoutDhcpOverride()
     {
         var handler = new SoapHandler(request => request.Contains("SetHostnameFromDHCP") ? HostnameDhcpResponse :
