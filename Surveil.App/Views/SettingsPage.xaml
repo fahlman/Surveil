@@ -20,7 +20,13 @@
 
             <muxc:Expander Header="Credentials &amp; provisioning" IsExpanded="True" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
                 <StackPanel Spacing="10">
-                    <TextBox Header="Default ONVIF username" Text="{Binding DefaultUsername, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                    <TextBox Header="ONVIF username" Text="{Binding DefaultUsername, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                    <StackPanel Spacing="2">
+                        <PasswordBox x:Name="PasswordInput" Header="ONVIF password" PasswordChanged="OnPasswordChanged" />
+                        <TextBlock Text="Held in memory only — not written to disk; re-enter after restarting."
+                                   Opacity="0.6" TextWrapping="Wrap" Style="{StaticResource CaptionTextBlockStyle}" />
+                    </StackPanel>
+                    <muxc:NumberBox Header="Provision concurrency (cameras at once)" Value="{Binding MaxProvisionConcurrency, Mode=TwoWay}" Minimum="1" Maximum="64" SpinButtonPlacementMode="Compact" />
                     <TextBox Header="Preferred codecs (first supported wins)" Text="{Binding PreferredCodecs, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
                     <ToggleSwitch Header="Dry run by default" IsOn="{Binding DryRunByDefault, Mode=TwoWay}" OnContent="On" OffContent="Off" />
                 </StackPanel>

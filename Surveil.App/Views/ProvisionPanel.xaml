@@ -39,8 +39,6 @@
             <muxc:PivotItem Header="Setup">
                 <ScrollViewer>
                     <StackPanel Spacing="10" Padding="4,4,4,12">
-                        <TextBox Header="ONVIF username" Text="{Binding Username, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
-                        <PasswordBox x:Name="PasswordInput" Header="ONVIF password" PasswordChanged="OnPasswordChanged" />
                         <StackPanel Spacing="4">
                             <TextBlock Text="Targets" Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.8" />
                             <Border Padding="12,10" CornerRadius="6"
@@ -92,7 +90,6 @@
                         <muxc:InfoBar IsOpen="{Binding VideoHiddenNote, Converter={StaticResource StringToBool}}"
                                       Severity="Informational" IsClosable="False" Message="{Binding VideoHiddenNote}" />
 
-                        <muxc:NumberBox Header="Max concurrency" Value="{Binding MaxConcurrency, Mode=TwoWay}" Minimum="1" Maximum="64" SpinButtonPlacementMode="Compact" />
                         <ToggleSwitch Header="Dry run (read only, write nothing)" IsOn="{Binding DryRun, Mode=TwoWay}" OnContent="On" OffContent="Off" />
 
                         <StackPanel Orientation="Horizontal" Spacing="8">

@@ -16,8 +16,6 @@ public sealed partial class ProvisionViewModel : ObservableObject
     private CancellationTokenSource? cts;
 
     [ObservableProperty] private string targets = "";
-    [ObservableProperty] private string username;
-    [ObservableProperty] private string password;
 
     // Identity + time are ONVIF-universal — always offered when any camera is selected.
     [ObservableProperty] private bool setName = true;
@@ -31,7 +29,6 @@ public sealed partial class ProvisionViewModel : ObservableObject
     [ObservableProperty] private string selectedCodec = AnyCodec;
     [ObservableProperty] private ResolutionChoice? selectedResolution;
 
-    [ObservableProperty] private int maxConcurrency = 8;
     [ObservableProperty] private bool dryRun = true;
 
     [ObservableProperty] private bool isBusy;
@@ -137,8 +134,6 @@ public sealed partial class ProvisionViewModel : ObservableObject
 
     public ProvisionViewModel()
     {
-        username = session.Username;
-        password = session.Password;
         dryRun = session.Settings.DryRunByDefault;
         selectedResolution = HighestResolution;
     }
@@ -199,7 +194,7 @@ public sealed partial class ProvisionViewModel : ObservableObject
 
         // Contacting cameras (any real write, or a dry run that reads video capabilities) needs a
         // username. A pure identity dry run never touches a camera, so credentials aren't required.
-        if ((!DryRun || (SetVideo && ShowVideoSection)) && string.IsNullOrWhiteSpace(Username))
+        if ((!DryRun || (SetVideo && ShowVideoSection)) && string.IsNullOrWhiteSpace(session.Username))
         {
             HasError = true;
             StatusMessage = "Enter the ONVIF username (needed to contact cameras).";
@@ -222,7 +217,7 @@ public sealed partial class ProvisionViewModel : ObservableObject
             PreferredCodecs = SetVideo && SelectedCodec != AnyCodec ? new[] { SelectedCodec } : null,
             MaxVideoResolution = SetVideo ? SelectedResolution?.Resolution : null,
             SkipUnknownLocation = false,  // selection is explicit — provision exactly what's ticked
-            MaxConcurrency = Math.Max(1, MaxConcurrency),
+            MaxConcurrency = Math.Max(1, session.Settings.MaxProvisionConcurrency),
             DryRun = DryRun,
         };
 
@@ -264,12 +259,8 @@ public sealed partial class ProvisionViewModel : ObservableObject
     [RelayCommand]
     private void Cancel() => cts?.Cancel();
 
-    private BulkProvisioningService BuildService()
-    {
-        session.Username = Username;
-        session.Password = Password;
-        return new BulkProvisioningService(session.Config, Username, Password);
-    }
+    private BulkProvisioningService BuildService() =>
+        new(session.Config, session.Username, session.Password);
 }
 
 /// <summary>A resolution option in the Video picker; a null <see cref="Resolution"/> means "Highest

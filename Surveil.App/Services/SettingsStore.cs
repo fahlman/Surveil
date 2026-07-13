@@ -7,6 +7,7 @@ namespace Surveil.App.Services;
 public sealed class AppSettings
 {
     public string DefaultUsername { get; set; } = "admin";
+    public int MaxProvisionConcurrency { get; set; } = 8;
     public int DefaultPort { get; set; } = 80;
     public int DefaultTimeoutMs { get; set; } = 400;
     public int DefaultConcurrency { get; set; } = 256;
