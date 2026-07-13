@@ -14,6 +14,9 @@ public sealed partial class NetworkRangeItem : ObservableObject
     [ObservableProperty] private bool isEditing;
     [ObservableProperty] private bool isSelected;
 
+    /// <summary>False when a filter is active and no camera in this range matches — the range hides.</summary>
+    [ObservableProperty] private bool isVisible = true;
+
     /// <summary>The site this range belongs to (for add-sibling, remove, and selection roll-up).</summary>
     public SiteItem? Parent { get; set; }
 
