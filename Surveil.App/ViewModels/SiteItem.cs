@@ -14,6 +14,9 @@ public sealed partial class SiteItem : ObservableObject
     [ObservableProperty] private bool isEditing;
     [ObservableProperty] private bool isExpanded = true;
 
+    /// <summary>False when a filter is active and no range under this site has a matching camera.</summary>
+    [ObservableProperty] private bool isVisible = true;
+
     /// <summary>Null = some (but not all) CIDRs selected (indeterminate); true = all; false = none.</summary>
     [ObservableProperty] private bool? isSelected = false;
 

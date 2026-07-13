@@ -32,6 +32,33 @@ public sealed partial class SitesViewModel : ObservableObject
     /// <summary>Cameras found (by discovery) that fall outside every mapped CIDR.</summary>
     public ObservableCollection<CameraItem> UnmappedCameras { get; } = new();
 
+    /// <summary>The faceted filters shown above the tree, rebuilt from the identified cameras.</summary>
+    public ObservableCollection<FacetGroup> Facets { get; } = new();
+
+    [ObservableProperty] private bool filterActive;
+    [ObservableProperty] private string filterSummary = "";
+    [ObservableProperty] private bool unmappedGroupVisible;
+    private bool suppressFilter;
+
+    /// <summary>Each facet: a display name and the value(s) a camera contributes to it.</summary>
+    private static readonly (string Name, Func<CameraItem, IEnumerable<string>> Values)[] FacetDefs =
+    {
+        ("Manufacturer", c => Single(c.Manufacturer)),
+        ("Model", c => Single(c.ModelName)),
+        ("Codec", c => c.Codecs),
+        ("Resolution", c => Single(c.ResolutionBucket)),
+        ("Capability", c => c.Capabilities),
+        ("ONVIF", c => Single(c.MediaGen)),
+        ("Sign-in", c => Single(c.SignInLabel)),
+        ("Location", c => Single(c.LocationLabel)),
+    };
+
+    private static IEnumerable<string> Single(string? value) =>
+        value is null ? Array.Empty<string>() : new[] { value };
+
+    private IEnumerable<CameraItem> AllCameras() =>
+        Sites.SelectMany(s => s.Children).SelectMany(r => r.Cameras).Concat(UnmappedCameras);
+
     public string DataDirectory => session.DataDirectory;
 
     public SitesViewModel()
@@ -73,6 +100,7 @@ public sealed partial class SitesViewModel : ObservableObject
             }
             if (UnmappedCameras.Count > 0) UnmappedExpanded = true;
             OnProvisionSelectionChanged();
+            RebuildFacets();
         }
         catch (Exception ex)
         {
@@ -208,6 +236,7 @@ public sealed partial class SitesViewModel : ObservableObject
                 found++;
             }
             OnProvisionSelectionChanged();  // scanned ranges were cleared — drop any stale selections
+            RebuildFacets();
             _ = IdentifyFoundCamerasAsync();  // background: log in and read features
             StatusMessage = $"Found {found} camera(s) across {addressesByRange.Count} CIDR(s).";
         }
@@ -268,6 +297,7 @@ public sealed partial class SitesViewModel : ObservableObject
             }
             if (UnmappedCameras.Count > 0) UnmappedExpanded = true;
             OnProvisionSelectionChanged();  // Unmapped was rebuilt — drop any stale selections
+            RebuildFacets();
             _ = IdentifyFoundCamerasAsync();  // background: log in and read features
             StatusMessage = $"Discovered {result.Cameras.Count} camera(s) — {unmapped} unmapped.";
             return new DiscoverySummary(result.Cameras.Count, unmapped);
@@ -344,6 +374,97 @@ public sealed partial class SitesViewModel : ObservableObject
         return Uri.TryCreate(first, UriKind.Absolute, out var uri) ? uri : null;
     }
 
+    // --- Faceted filtering ---
+
+    /// <summary>Rebuild the facet groups from the current cameras, preserving any selected values.
+    /// A facet appears only when at least one camera contributes a value to it.</summary>
+    public void RebuildFacets()
+    {
+        var cameras = AllCameras().ToList();
+        var previouslySelected = Facets.ToDictionary(g => g.Name, g => g.SelectedValues.ToHashSet());
+
+        suppressFilter = true;
+        Facets.Clear();
+        foreach (var (name, values) in FacetDefs)
+        {
+            var distinct = cameras.SelectMany(values).Where(v => !string.IsNullOrWhiteSpace(v))
+                .Distinct().OrderBy(v => v, StringComparer.OrdinalIgnoreCase).ToList();
+            if (distinct.Count == 0) continue;
+
+            var group = new FacetGroup(name);
+            var keep = previouslySelected.TryGetValue(name, out var set) ? set : new HashSet<string>();
+            foreach (var value in distinct)
+                group.Options.Add(new FacetOption(value) { IsSelected = keep.Contains(value), SelectionChanged = OnFacetChanged });
+            Facets.Add(group);
+        }
+        suppressFilter = false;
+        ApplyFilters();
+        foreach (var group in Facets) group.RefreshHeader();
+    }
+
+    private void OnFacetChanged()
+    {
+        if (suppressFilter) return;
+        ApplyFilters();
+        foreach (var group in Facets) group.RefreshHeader();
+    }
+
+    /// <summary>Apply the active facet selections: hide non-matching cameras (and now-empty ranges /
+    /// sites), and recompute each facet option's count against the other active facets.</summary>
+    public void ApplyFilters()
+    {
+        var cameras = AllCameras().ToList();
+        var active = Facets.Where(g => g.HasSelection)
+            .Select(g => (Values: FacetDefs.First(d => d.Name == g.Name).Values, Selected: g.SelectedValues.ToHashSet(), g.Name))
+            .ToList();
+        var filtering = active.Count > 0;
+
+        var visible = 0;
+        foreach (var cam in cameras)
+        {
+            cam.IsVisible = !filtering || active.All(a => a.Values(cam).Any(a.Selected.Contains));
+            if (cam.IsVisible) visible++;
+        }
+
+        foreach (var site in Sites)
+        {
+            var siteHasMatch = false;
+            foreach (var range in site.Children)
+            {
+                var rangeHasMatch = range.Cameras.Any(c => c.IsVisible);
+                range.IsVisible = !filtering || rangeHasMatch;
+                siteHasMatch |= rangeHasMatch;
+            }
+            site.IsVisible = !filtering || siteHasMatch;
+        }
+        UnmappedGroupVisible = filtering ? UnmappedCameras.Any(c => c.IsVisible) : UnmappedCameras.Count > 0;
+
+        // Faceted counts: for each option, how many cameras match the OTHER active facets and this value.
+        foreach (var group in Facets)
+        {
+            var others = active.Where(a => a.Name != group.Name).ToList();
+            var def = FacetDefs.First(d => d.Name == group.Name);
+            foreach (var option in group.Options)
+                option.Count = cameras.Count(cam =>
+                    others.All(a => a.Values(cam).Any(a.Selected.Contains)) && def.Values(cam).Contains(option.Value));
+        }
+
+        FilterActive = filtering;
+        FilterSummary = filtering
+            ? $"{visible} of {cameras.Count} cameras"
+            : $"{cameras.Count} camera{(cameras.Count == 1 ? "" : "s")}";
+    }
+
+    [RelayCommand]
+    private void ClearFilters()
+    {
+        suppressFilter = true;
+        foreach (var option in Facets.SelectMany(g => g.Options)) option.IsSelected = false;
+        suppressFilter = false;
+        ApplyFilters();
+        foreach (var group in Facets) group.RefreshHeader();
+    }
+
     /// <summary>Log into every not-yet-identified camera and read its features, using the Provision
     /// credentials. Background enrichment: it doesn't set the busy state; each row shows its own
     /// per-camera login state instead. Bounded concurrency keeps it gentle on the network.</summary>
@@ -390,6 +511,7 @@ public sealed partial class SitesViewModel : ObservableObject
             }
         });
         await Task.WhenAll(work);
+        RebuildFacets();  // identities are in — the manufacturer/model/codec/… facets can populate
     }
 
     /// <summary>Ranges that are ticked and carry a CIDR — the scan targets offered after discovery.</summary>
