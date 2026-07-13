@@ -254,7 +254,7 @@ public sealed partial class ConfigurationViewModel : ObservableObject
             VideoBitrateKbps = ShowVideoSection && CanSetBitrate && !double.IsNaN(BitrateKbps) && BitrateKbps > 0
                 ? (int)Math.Round(BitrateKbps) : null,
             SkipUnknownLocation = false,  // selection is explicit — configure exactly what's ticked
-            MaxConcurrency = Math.Max(1, session.Settings.MaxProvisionConcurrency),
+            MaxConcurrency = Math.Max(1, session.Settings.MaxConfigurationConcurrency),
             DryRun = false,
         };
 
