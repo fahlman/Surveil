@@ -31,7 +31,8 @@ public sealed partial class ProvisionPanel : UserControl
             if (Vm.SetName) actions.Add("name");
             if (Vm.SetHostname) actions.Add("hostname");
             if (Vm.SetNtp) actions.Add(string.IsNullOrWhiteSpace(Vm.NtpPosixTimeZone) ? "NTP (this PC's zone)" : $"NTP ({Vm.NtpPosixTimeZone})");
-            if (Vm.MaximizeVideo) actions.Add("video (maximize)");
+            if (Vm.SetVideo && Vm.ShowVideoSection)
+                actions.Add($"video ({Vm.SelectedCodec}, up to {(Vm.SelectedResolution?.Resolution is { } r ? $"{r.Width}×{r.Height}" : "highest")})");
 
             var ips = Vm.SelectedIps;
             var shown = string.Join("\n", ips.Take(12).Select(ip => "   • " + ip));

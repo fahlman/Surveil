@@ -56,6 +56,9 @@ public sealed partial class CameraItem : ObservableObject
     public string? ModelName => Features?.Info.Model is { Length: > 0 } value ? value : null;
     public IReadOnlyList<string> Codecs =>
         Features?.Encoders.SelectMany(e => e.Codecs).Select(PrettyCodec).Distinct().ToList() ?? [];
+    public bool HasVideo => Features is { Encoders.Count: > 0 };
+    public IReadOnlyList<OnvifResolution> SupportedResolutions =>
+        Features?.Encoders.SelectMany(e => e.Resolutions).Distinct().ToList() ?? [];
     public string? ResolutionBucket => Features is { Encoders.Count: > 0 } f
         ? Bucket(f.Encoders.Select(e => e.MaxResolution).OrderByDescending(r => (long)r.Width * r.Height).First())
         : null;

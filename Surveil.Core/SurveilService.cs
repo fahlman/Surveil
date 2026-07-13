@@ -10,9 +10,11 @@ public sealed record CameraFeatures(
     OnvifDeviceInformation Info, OnvifMediaGeneration MediaGeneration,
     IReadOnlyList<string> Services, IReadOnlyList<CameraEncoderSummary> Encoders);
 
-/// <summary>One video encoder's capability summary: the codecs it offers and its top resolution/rate.</summary>
+/// <summary>One video encoder's capability summary: the codecs and resolutions it offers, and its
+/// top resolution/rate.</summary>
 public sealed record CameraEncoderSummary(
-    IReadOnlyList<string> Codecs, OnvifResolution MaxResolution, float? MaxFrameRate);
+    IReadOnlyList<string> Codecs, IReadOnlyList<OnvifResolution> Resolutions,
+    OnvifResolution MaxResolution, float? MaxFrameRate);
 
 public sealed class SurveilService
 {
@@ -112,11 +114,11 @@ public sealed class SurveilService
 
             var codecs = options.Select(o => o.Encoding).Prepend(config.Encoding)
                 .Where(c => !string.IsNullOrWhiteSpace(c)).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
-            var resolutions = options.SelectMany(o => o.Resolutions).Append(config.Resolution).ToList();
+            var resolutions = options.SelectMany(o => o.Resolutions).Append(config.Resolution).Distinct().ToList();
             var maxResolution = resolutions.OrderByDescending(r => (long)r.Width * r.Height).First();
             var frameRates = options.SelectMany(o => o.FrameRates).ToList();
             float? maxFrameRate = frameRates.Count > 0 ? frameRates.Max() : config.FrameRateLimit;
-            summaries.Add(new CameraEncoderSummary(codecs, maxResolution, maxFrameRate));
+            summaries.Add(new CameraEncoderSummary(codecs, resolutions, maxResolution, maxFrameRate));
         }
         return summaries;
     }
