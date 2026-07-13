@@ -17,19 +17,18 @@ public sealed partial class ProvisionViewModel : ObservableObject
 
     [ObservableProperty] private string targets = "";
 
-    // Identity + time are ONVIF-universal — always offered when any camera is selected.
-    [ObservableProperty] private bool setName = true;
-    [ObservableProperty] private bool setHostname = true;
-    [ObservableProperty] private bool setNtp = true;
-    [ObservableProperty] private string ntpPosixTimeZone = "";
+    // Identity — single-camera only (a name/hostname is per-camera; nonsense to type one for many).
+    [ObservableProperty] private string name = "";
+    [ObservableProperty] private string hostname = "";
 
-    // Video — offered only when every selected camera has encoders (ShowVideoSection). The codec and
-    // "up to" resolution choices are the intersection across the whole selection.
-    [ObservableProperty] private bool setVideo;
-    [ObservableProperty] private string selectedCodec = AnyCodec;
+    // Time — an optional NTP server plus a time-zone choice, applied to the whole selection.
+    [ObservableProperty] private string ntpServer = "";
+    [ObservableProperty] private TimeZoneChoice? selectedTimeZone;
+
+    // Video — offered only when every selected camera has encoders. Codec + resolution are the shared
+    // intersection; "Leave unchanged" keeps each camera's current setting.
+    [ObservableProperty] private string selectedCodec = LeaveCodec;
     [ObservableProperty] private ResolutionChoice? selectedResolution;
-
-    [ObservableProperty] private bool dryRun = true;
 
     [ObservableProperty] private bool isBusy;
     [ObservableProperty] private bool hasError;
@@ -38,19 +37,22 @@ public sealed partial class ProvisionViewModel : ObservableObject
     [ObservableProperty] private double progressMaximum = 1;
     [ObservableProperty] private bool progressIndeterminate;
 
-    private const string AnyCodec = "Any (each keeps its own)";
-    private static readonly ResolutionChoice HighestResolution = new(null, "Highest available");
+    private const string LeaveCodec = "Leave unchanged";
+    private static readonly ResolutionChoice LeaveResolution = new(null, "Leave unchanged");
 
     /// <summary>Number of cameras ticked in the Sites tree — the provisioning targets.</summary>
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(SelectedCameraSummary), nameof(AnyCamerasSelected))]
+    [NotifyPropertyChangedFor(nameof(SelectedCameraSummary), nameof(AnyCamerasSelected), nameof(SingleCameraSelected))]
     private int selectedCameraCount;
 
     /// <summary>"12 cameras · 2 models" — shown at the top of the panel.</summary>
     [ObservableProperty] private string selectionSummary = "";
 
-    /// <summary>Identity + Time are offered whenever at least one camera is selected.</summary>
+    /// <summary>Time + Video are offered whenever at least one camera is selected.</summary>
     public bool AnyCamerasSelected => SelectedCameraCount > 0;
+
+    /// <summary>Name + hostname are offered only for a single camera.</summary>
+    public bool SingleCameraSelected => SelectedCameraCount == 1;
 
     /// <summary>True when every selected camera has encoders — the Video section is then offered.</summary>
     [ObservableProperty][NotifyPropertyChangedFor(nameof(VideoHiddenNote))] private bool showVideoSection;
@@ -64,11 +66,14 @@ public sealed partial class ProvisionViewModel : ObservableObject
             ? "Video hidden — not every selected camera exposes it."
             : "";
 
-    /// <summary>Codec choices shared by the whole selection (plus "Any").</summary>
+    /// <summary>Codec choices shared by the whole selection (plus "Leave unchanged").</summary>
     public ObservableCollection<string> AvailableCodecs { get; } = new();
 
-    /// <summary>"Maximize up to" resolutions shared by the whole selection (plus "Highest available").</summary>
+    /// <summary>Resolutions shared by the whole selection (plus "Leave unchanged").</summary>
     public ObservableCollection<ResolutionChoice> AvailableResolutions { get; } = new();
+
+    /// <summary>Friendly time-zone options; the camera syncs via NTP using the chosen zone.</summary>
+    public IReadOnlyList<TimeZoneChoice> AvailableTimeZones { get; } = BuildTimeZones();
 
     public string SelectedCameraSummary => SelectedCameraCount switch
     {
@@ -101,20 +106,19 @@ public sealed partial class ProvisionViewModel : ObservableObject
         var codecs = Intersection(selection.Select(camera => camera.Codecs))
             .OrderBy(codec => codec, StringComparer.OrdinalIgnoreCase).ToList();
         AvailableCodecs.Clear();
-        AvailableCodecs.Add(AnyCodec);
+        AvailableCodecs.Add(LeaveCodec);
         foreach (var codec in codecs) AvailableCodecs.Add(codec);
-        if (!AvailableCodecs.Contains(SelectedCodec)) SelectedCodec = AnyCodec;
+        if (!AvailableCodecs.Contains(SelectedCodec)) SelectedCodec = LeaveCodec;
 
         var previousResolution = SelectedResolution?.Resolution;
         var resolutions = Intersection(selection.Select(camera => camera.Resolutions))
             .OrderByDescending(r => (long)r.Width * r.Height).ToList();
         AvailableResolutions.Clear();
-        AvailableResolutions.Add(HighestResolution);
+        AvailableResolutions.Add(LeaveResolution);
         foreach (var r in resolutions) AvailableResolutions.Add(new ResolutionChoice(r, $"{r.Width} × {r.Height}"));
-        SelectedResolution = AvailableResolutions.FirstOrDefault(choice => choice.Resolution == previousResolution) ?? HighestResolution;
+        SelectedResolution = AvailableResolutions.FirstOrDefault(choice => choice.Resolution == previousResolution) ?? LeaveResolution;
 
         ShowVideoSection = selection.Count > 0 && selection.All(camera => camera.HasVideo);
-        if (!ShowVideoSection) SetVideo = false;
         OnPropertyChanged(nameof(VideoHiddenNote));
     }
 
@@ -129,13 +133,31 @@ public sealed partial class ProvisionViewModel : ObservableObject
         return accumulator?.ToList() ?? new List<T>();
     }
 
+    private static IReadOnlyList<TimeZoneChoice> BuildTimeZones()
+    {
+        var zones = new List<TimeZoneChoice> { new("Leave unchanged", null, LeaveUnchanged: true) };
+        try
+        {
+            var local = OnvifDeviceClient.ResolveTimeZone(TimeZoneInfo.Local);
+            zones.Add(new($"This computer ({local.PosixValue})", null));  // Posix null = computer zone at write time
+        }
+        catch { /* unmapped local zone: offer the explicit ones only */ }
+        zones.Add(new("Eastern (EST5EDT)", "EST5EDT,M3.2.0,M11.1.0"));
+        zones.Add(new("Central (CST6CDT)", "CST6CDT,M3.2.0,M11.1.0"));
+        zones.Add(new("Mountain (MST7MDT)", "MST7MDT,M3.2.0,M11.1.0"));
+        zones.Add(new("Arizona (MST7)", "MST7"));
+        zones.Add(new("Pacific (PST8PDT)", "PST8PDT,M3.2.0,M11.1.0"));
+        zones.Add(new("UTC", "UTC0"));
+        return zones;
+    }
+
     /// <summary>The selected camera IPs, for the pre-write confirmation dialog.</summary>
     public IReadOnlyList<string> SelectedIps => selection.Select(camera => camera.Address.ToString()).ToList();
 
     public ProvisionViewModel()
     {
-        dryRun = session.Settings.DryRunByDefault;
-        selectedResolution = HighestResolution;
+        selectedResolution = LeaveResolution;
+        selectedTimeZone = AvailableTimeZones[0];  // "Leave unchanged"
     }
 
     /// <summary>Preview the derived name/hostname for each in-range camera without touching it.</summary>
@@ -194,31 +216,33 @@ public sealed partial class ProvisionViewModel : ObservableObject
 
         // Contacting cameras (any real write, or a dry run that reads video capabilities) needs a
         // username. A pure identity dry run never touches a camera, so credentials aren't required.
-        if ((!DryRun || (SetVideo && ShowVideoSection)) && string.IsNullOrWhiteSpace(session.Username))
+        if (string.IsNullOrWhiteSpace(session.Username))
         {
             HasError = true;
-            StatusMessage = "Enter the ONVIF username (needed to contact cameras).";
+            StatusMessage = "Enter the ONVIF username in Settings (needed to contact cameras).";
             return;
         }
 
         IsBusy = true;
         ProgressIndeterminate = true;
         ProgressValue = 0;
-        StatusMessage = DryRun ? "Dry run — reading capabilities…" : "Provisioning…";
+        StatusMessage = "Provisioning…";
         cts = new CancellationTokenSource();
 
         var options = new BulkProvisionOptions
         {
-            SetName = SetName,
-            SetHostname = SetHostname,
-            SetNtp = SetNtp,
-            NtpPosixTimeZone = string.IsNullOrWhiteSpace(NtpPosixTimeZone) ? null : NtpPosixTimeZone.Trim(),
-            MaximizeVideo = SetVideo && ShowVideoSection,
-            PreferredCodecs = SetVideo && SelectedCodec != AnyCodec ? new[] { SelectedCodec } : null,
-            MaxVideoResolution = SetVideo ? SelectedResolution?.Resolution : null,
+            SetName = SingleCameraSelected && !string.IsNullOrWhiteSpace(Name),
+            Name = Name.Trim(),
+            SetHostname = SingleCameraSelected && !string.IsNullOrWhiteSpace(Hostname),
+            Hostname = Hostname.Trim(),
+            SetNtp = SelectedTimeZone is { LeaveUnchanged: false },
+            NtpPosixTimeZone = SelectedTimeZone?.Posix,
+            NtpServer = string.IsNullOrWhiteSpace(NtpServer) ? null : NtpServer.Trim(),
+            VideoCodec = ShowVideoSection && SelectedCodec != LeaveCodec ? SelectedCodec : null,
+            VideoResolution = ShowVideoSection ? SelectedResolution?.Resolution : null,
             SkipUnknownLocation = false,  // selection is explicit — provision exactly what's ticked
             MaxConcurrency = Math.Max(1, session.Settings.MaxProvisionConcurrency),
-            DryRun = DryRun,
+            DryRun = false,
         };
 
         var progress = new Progress<BulkProvisionProgress>(p =>
@@ -235,7 +259,7 @@ public sealed partial class ProvisionViewModel : ObservableObject
             foreach (var result in results.OrderBy(r => r.Success).ThenBy(r => r.Address.ToString()))
                 Results.Add(new ProvisionResultRow(result));
             var ok = results.Count(r => r.Success);
-            StatusMessage = $"{(DryRun ? "Dry run complete" : "Done")}: {ok} ok, {results.Count - ok} failed of {results.Count}.";
+            StatusMessage = $"Done: {ok} ok, {results.Count - ok} failed of {results.Count}.";
         }
         catch (OperationCanceledException)
         {
@@ -263,9 +287,13 @@ public sealed partial class ProvisionViewModel : ObservableObject
         new(session.Config, session.Username, session.Password);
 }
 
-/// <summary>A resolution option in the Video picker; a null <see cref="Resolution"/> means "Highest
-/// available" (no cap).</summary>
+/// <summary>A resolution option in the Video picker; a null <see cref="Resolution"/> means "Leave
+/// unchanged" (keep the camera's current resolution).</summary>
 public sealed record ResolutionChoice(OnvifResolution? Resolution, string Label);
+
+/// <summary>A time-zone option: a friendly label plus the ONVIF POSIX rule to write. Posix null means
+/// "this computer's zone" (resolved at write time); LeaveUnchanged skips the NTP zone/mode entirely.</summary>
+public sealed record TimeZoneChoice(string Label, string? Posix, bool LeaveUnchanged = false);
 
 /// <summary>A selected camera handed from the tree to the Provision panel, with just enough of its
 /// discovered features to compute the settable-capability intersection.</summary>

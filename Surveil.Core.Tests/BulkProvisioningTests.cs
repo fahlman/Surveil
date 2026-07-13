@@ -99,7 +99,7 @@ public sealed class BulkProvisioningTests
     }
 
     [Fact]
-    public async Task MaximizesEveryStreamToItsOwnResolutionAndFrameRate()
+    public async Task SetsVideoResolutionCappedPerEncoder()
     {
         var config = Config("Hall", "Main", "10.200.62.0/24");
         var vga = new OnvifResolution(1280, 720);
@@ -118,44 +118,40 @@ public sealed class BulkProvisioningTests
 
         var result = Assert.Single(await service.ProvisionAsync(
             service.TargetsFromAddresses([IPAddress.Parse("10.200.62.5")]),
-            new BulkProvisionOptions { SetName = false, SetHostname = false, SetNtp = false, MaximizeVideo = true }));
+            new BulkProvisionOptions { SetName = false, SetHostname = false, SetNtp = false, VideoResolution = uhd }));
 
         Assert.True(result.Success);
-        // Every stream configured, each to its OWN max resolution + max frame rate.
+        // Each stream capped to the largest it supports no bigger than the request; codec left alone.
         Assert.Equal(uhd, fake!.Applied.Single(a => a.Token == "main").Resolution);
-        Assert.Equal(30f, fake.Applied.Single(a => a.Token == "main").FrameRate);
         Assert.Equal(vga, fake.Applied.Single(a => a.Token == "sub").Resolution);
-        var main = result.Video.Single(v => v.ConfigurationToken == "main");
-        Assert.Equal(uhd, main.AppliedResolution);
-        Assert.Equal(30f, main.AppliedFrameRate);
-        Assert.False(main.ClampedByCamera);
+        Assert.Null(fake.Applied.Single(a => a.Token == "main").Codec);   // no codec switch requested
     }
 
     [Fact]
-    public async Task ReportsTheResolutionAndFrameRateTheCameraActuallyApplied()
+    public async Task ReportsWhatTheCameraActuallyApplied()
     {
         var config = Config("Hall", "Main", "10.200.62.0/24");
         var uhd = new OnvifResolution(3840, 2160);
-        // Camera accepts 4K but only at 15fps, even though 30 is in its advertised list.
+        var hd = new OnvifResolution(1920, 1080);
+        // We request 4K (advertised), but the camera actually settles on 1080p.
         var fake = new FakeVideo(
-            new[] { new VideoEncoderInfo("main", true, "H264", new OnvifResolution(1920, 1080), 30f,
-                new[] { new CodecCapability("H264", new[] { uhd }, new[] { 30f, 15f }) }) },
-            camera: (codec, resolution, frameRate) => new VideoEncoderState(codec ?? "H264", resolution, frameRate == 30f ? 15f : frameRate));
+            new[] { new VideoEncoderInfo("main", true, "H264", hd, 30f,
+                new[] { new CodecCapability("H264", new[] { uhd, hd }, new[] { 30f }) }) },
+            camera: (codec, resolution, frameRate) => new VideoEncoderState(codec ?? "H264", hd, frameRate));
         var service = new BulkProvisioningService(config, deviceFactory: _ => new RecordingDevice(), videoFactory: _ => fake);
 
         var result = Assert.Single(await service.ProvisionAsync(
             service.TargetsFromAddresses([IPAddress.Parse("10.200.62.5")]),
-            new BulkProvisionOptions { SetName = false, SetHostname = false, SetNtp = false, MaximizeVideo = true }));
+            new BulkProvisionOptions { SetName = false, SetHostname = false, SetNtp = false, VideoResolution = uhd }));
 
         var outcome = result.Video.Single();
-        Assert.Equal(30f, outcome.RequestedFrameRate);
-        Assert.Equal(uhd, outcome.AppliedResolution);
-        Assert.Equal(15f, outcome.AppliedFrameRate);   // report shows what the camera actually did
+        Assert.Equal(uhd, outcome.RequestedResolution);
+        Assert.Equal(hd, outcome.AppliedResolution);    // report shows what the camera actually did
         Assert.True(outcome.ClampedByCamera);
     }
 
     [Fact]
-    public async Task PrefersRequestedCodecAndFallsBackWhenUnsupported()
+    public async Task SwitchesToRequestedCodecAndReportsFallbackWhenUnsupported()
     {
         var config = Config("Hall", "Main", "10.200.62.0/24");
         var hd = new OnvifResolution(1920, 1080);
@@ -166,34 +162,25 @@ public sealed class BulkProvisioningTests
             {
                 // .1 supports H.264 + H.265 (4K only in H.265); .2 supports H.264 only.
                 var codecs = endpoint.Host.EndsWith(".1")
-                    ? new[]
-                    {
-                        new CodecCapability("H264", new[] { hd }, new[] { 30f }),
-                        new CodecCapability("H265", new[] { uhd }, new[] { 30f }),
-                    }
+                    ? new[] { new CodecCapability("H264", new[] { hd }, new[] { 30f }), new CodecCapability("H265", new[] { uhd }, new[] { 30f }) }
                     : new[] { new CodecCapability("H264", new[] { hd }, new[] { 30f }) };
-                return new FakeVideo(
-                    new[] { new VideoEncoderInfo("main", true, "H264", hd, 30f, codecs) },
+                return new FakeVideo(new[] { new VideoEncoderInfo("main", true, "H264", hd, 30f, codecs) },
                     camera: (codec, resolution, frameRate) => new VideoEncoderState(codec ?? "H264", resolution, frameRate));
             });
 
         var results = await service.ProvisionAsync(
             service.TargetsFromAddresses([IPAddress.Parse("10.200.62.1"), IPAddress.Parse("10.200.62.2")]),
-            new BulkProvisionOptions
-            {
-                SetName = false, SetHostname = false, SetNtp = false,
-                MaximizeVideo = true, PreferredCodecs = ["H265", "H264"],
-            });
+            new BulkProvisionOptions { SetName = false, SetHostname = false, SetNtp = false, VideoCodec = "H265", VideoResolution = uhd });
 
         var preferred = results.Single(r => r.Address.ToString() == "10.200.62.1").Video.Single();
         Assert.Equal("H265", preferred.AppliedCodec);
-        Assert.Equal(uhd, preferred.AppliedResolution);   // maxed within H.265
+        Assert.Equal(uhd, preferred.AppliedResolution);
         Assert.False(preferred.CodecFallback);
 
         var fellBack = results.Single(r => r.Address.ToString() == "10.200.62.2").Video.Single();
         Assert.Equal("H265", fellBack.RequestedCodec);
         Assert.Equal("H264", fellBack.AppliedCodec);
-        Assert.Equal(hd, fellBack.AppliedResolution);     // maxed within H.264
+        Assert.Equal(hd, fellBack.AppliedResolution);     // capped within H.264
         Assert.True(fellBack.CodecFallback);
     }
 
@@ -216,11 +203,7 @@ public sealed class BulkProvisioningTests
 
         var result = Assert.Single(await service.ProvisionAsync(
             service.TargetsFromAddresses([IPAddress.Parse("10.200.62.9")]),
-            new BulkProvisionOptions
-            {
-                SetName = false, SetHostname = false, SetNtp = false,
-                MaximizeVideo = true, PreferredCodecs = ["H265", "H264"],
-            }));
+            new BulkProvisionOptions { SetName = false, SetHostname = false, SetNtp = false, VideoCodec = "H265", VideoResolution = hd }));
 
         var outcome = result.Video.Single();
         Assert.Equal("H264", outcome.AppliedCodec);      // stayed on its current codec
@@ -248,17 +231,13 @@ public sealed class BulkProvisioningTests
 
         var result = Assert.Single(await service.ProvisionAsync(
             service.TargetsFromAddresses([IPAddress.Parse("10.200.62.5")]),
-            new BulkProvisionOptions
-            {
-                SetName = true, SetHostname = false, SetNtp = false,
-                MaximizeVideo = true, PreferredCodecs = ["H265", "H264"], DryRun = true,
-            }));
+            new BulkProvisionOptions { SetName = true, SetHostname = false, SetNtp = false, VideoCodec = "H265", VideoResolution = uhd, DryRun = true }));
 
         Assert.True(result.Success);
         Assert.Empty(fake!.Applied);                                   // nothing written to the camera
         var outcome = result.Video.Single();
         Assert.Equal("H265", outcome.AppliedCodec);                    // planned pick
-        Assert.Equal(uhd, outcome.AppliedResolution);                  // planned max within H.265
+        Assert.Equal(uhd, outcome.AppliedResolution);                  // planned resolution within H.265
         Assert.All(result.Steps, step => Assert.StartsWith("would set ", step));
     }
 
@@ -319,6 +298,14 @@ public sealed class BulkProvisioningTests
         {
             if (FailWith is not null) throw FailWith;
             NtpApplied = true;
+            return Task.CompletedTask;
+        }
+
+        public string? NtpServer { get; private set; }
+        public Task SetNtpServerAsync(string server, CancellationToken cancellationToken)
+        {
+            if (FailWith is not null) throw FailWith;
+            NtpServer = server;
             return Task.CompletedTask;
         }
 

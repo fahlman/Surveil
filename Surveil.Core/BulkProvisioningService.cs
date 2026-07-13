@@ -26,22 +26,24 @@ public sealed record BulkProvisionOptions
     public bool SetName { get; init; } = true;
     public bool SetHostname { get; init; } = true;
     public bool SetNtp { get; init; } = true;
-    /// <summary>Null derives the POSIX zone from this computer's time zone.</summary>
+    /// <summary>Explicit name to write; overrides the map-derived name when set.</summary>
+    public string? Name { get; init; }
+    /// <summary>Explicit hostname to write; overrides the map-derived hostname when set.</summary>
+    public string? Hostname { get; init; }
+    /// <summary>NTP time zone as a POSIX string (e.g. "EST5EDT,M3.2.0,M11.1.0"); null leaves the
+    /// camera's zone/mode unchanged.</summary>
     public string? NtpPosixTimeZone { get; init; }
+    /// <summary>Manual NTP server address (IPv4 or DNS); null/blank leaves it unchanged.</summary>
+    public string? NtpServer { get; init; }
     public int MaxConcurrency { get; init; } = 8;
     /// <summary>Skip cameras whose address is not inside any configured site range.</summary>
     public bool SkipUnknownLocation { get; init; } = true;
-    /// <summary>When true, set every video encoder on each camera to its maximum resolution and, at
-    /// that resolution, the highest frame rate the camera accepts (resolution-first). Requires a
-    /// video factory.</summary>
-    public bool MaximizeVideo { get; init; }
-    /// <summary>Ordered codec preference (e.g. ["H265", "H264"]). The first codec a camera supports
-    /// wins, and resolution/frame rate are maximized within it. Null or empty leaves each encoder's
-    /// codec unchanged. Cameras that cannot switch codec (legacy Media1) keep their current one.</summary>
-    public IReadOnlyList<string>? PreferredCodecs { get; init; }
-    /// <summary>Cap for maximized resolution: the largest supported resolution no bigger than this is
-    /// chosen. Null maximizes to each encoder's highest.</summary>
-    public OnvifResolution? MaxVideoResolution { get; init; }
+    /// <summary>Switch every encoder to this codec (e.g. "H265"); null leaves the codec unchanged.
+    /// Encoders that cannot switch codec (legacy Media1) keep their current one.</summary>
+    public string? VideoCodec { get; init; }
+    /// <summary>Set every encoder to the largest supported resolution no bigger than this; null
+    /// leaves each encoder's resolution unchanged. Requires a video factory.</summary>
+    public OnvifResolution? VideoResolution { get; init; }
     /// <summary>Preview mode: read each camera's capabilities and report exactly what would be
     /// applied, but perform no writes. Capability reads still occur; nothing on the camera changes.</summary>
     public bool DryRun { get; init; }
@@ -56,6 +58,7 @@ public interface IProvisionableDevice : IDisposable
     /// <returns>True when the camera reported that a reboot is required.</returns>
     Task<bool> SetHostnameAsync(string hostname, CancellationToken cancellationToken);
     Task SetNtpAsync(string? posixTimeZone, CancellationToken cancellationToken);
+    Task SetNtpServerAsync(string server, CancellationToken cancellationToken);
 }
 
 /// <summary>What one codec supports on an encoder: the resolutions and frame rates available when
@@ -201,59 +204,74 @@ public sealed class BulkProvisioningService
         var videoOutcomes = new List<VideoEncoderOutcome>();
         try
         {
-            if (options.SetName || options.SetHostname || options.SetNtp)
+            var name = options.SetName ? (string.IsNullOrWhiteSpace(options.Name) ? plan.Name : options.Name!.Trim()) : null;
+            var hostname = options.SetHostname ? (string.IsNullOrWhiteSpace(options.Hostname) ? plan.Hostname : options.Hostname!.Trim()) : null;
+            var setNtp = options.SetNtp;  // applies NTP mode + zone (a null zone means this computer's)
+            var setServer = !string.IsNullOrWhiteSpace(options.NtpServer);
+
+            if (name is not null || hostname is not null || setNtp || setServer)
             {
                 if (options.DryRun)
                 {
-                    if (options.SetName) steps.Add($"would set name={plan.Name}");
-                    if (options.SetHostname && plan.Hostname is not null) steps.Add($"would set hostname={plan.Hostname}");
-                    if (options.SetNtp) steps.Add(options.NtpPosixTimeZone is null
-                        ? "would set ntp=computer-zone" : $"would set ntp={options.NtpPosixTimeZone}");
+                    if (name is not null) steps.Add($"would set name={name}");
+                    if (hostname is not null) steps.Add($"would set hostname={hostname}");
+                    if (setNtp) steps.Add(options.NtpPosixTimeZone is null ? "would set ntp=computer-zone" : $"would set ntp={options.NtpPosixTimeZone}");
+                    if (setServer) steps.Add($"would set ntp server={options.NtpServer!.Trim()}");
                 }
                 else
                 {
                     using var device = deviceFactory(target.DeviceEndpoint);
-                    if (options.SetName)
+                    if (name is not null)
                     {
-                        await device.SetNameAsync(plan.Name, cancellationToken);
-                        steps.Add($"name={plan.Name}");
+                        await device.SetNameAsync(name, cancellationToken);
+                        steps.Add($"name={name}");
                     }
-                    if (options.SetHostname && plan.Hostname is not null)
+                    if (hostname is not null)
                     {
-                        var reboot = await device.SetHostnameAsync(plan.Hostname, cancellationToken);
-                        steps.Add(reboot ? $"hostname={plan.Hostname} (reboot required)" : $"hostname={plan.Hostname}");
+                        var reboot = await device.SetHostnameAsync(hostname, cancellationToken);
+                        steps.Add(reboot ? $"hostname={hostname} (reboot required)" : $"hostname={hostname}");
                     }
-                    if (options.SetNtp)
+                    if (setNtp)
                     {
                         await device.SetNtpAsync(options.NtpPosixTimeZone, cancellationToken);
                         steps.Add(options.NtpPosixTimeZone is null ? "ntp=computer-zone" : $"ntp={options.NtpPosixTimeZone}");
                     }
+                    if (setServer)
+                    {
+                        await device.SetNtpServerAsync(options.NtpServer!.Trim(), cancellationToken);
+                        steps.Add($"ntp server={options.NtpServer!.Trim()}");
+                    }
                 }
             }
-            if (options.MaximizeVideo && videoFactory is not null)
+            if ((options.VideoCodec is not null || options.VideoResolution is not null) && videoFactory is not null)
             {
                 using var video = videoFactory(target.DeviceEndpoint);
                 foreach (var encoder in await video.GetEncodersAsync(cancellationToken))
                 {
-                    var codec = ChooseCodec(encoder, options.PreferredCodecs);
+                    // Pick the codec to work in: the requested one if the encoder can switch to it, else current.
+                    var codec = ChooseCodec(encoder, options.VideoCodec is null ? null : new[] { options.VideoCodec });
                     if (codec is null || codec.Resolutions.Count == 0) continue;
-                    // Maximize, optionally capped: largest supported resolution no bigger than the cap.
-                    var withinCap = options.MaxVideoResolution is { } cap
-                        ? codec.Resolutions.Where(r => Area(r) <= Area(cap)).ToList()
-                        : codec.Resolutions.ToList();
-                    var maxResolution = withinCap.Count > 0
-                        ? withinCap.OrderByDescending(Area).First()
-                        : codec.Resolutions.OrderBy(Area).First();
-                    float? maxFrameRate = codec.FrameRates.Count > 0 ? codec.FrameRates.Max() : null;
-                    // Only pass a codec to switch to when it actually differs from the current one.
-                    var switchTo = NormalizeCodec(codec.Codec) == NormalizeCodec(encoder.CurrentCodec) ? null : codec.Codec;
+                    var switchTo = options.VideoCodec is not null && encoder.CanSwitchCodec &&
+                                   NormalizeCodec(codec.Codec) != NormalizeCodec(encoder.CurrentCodec) ? codec.Codec : null;
+
+                    // Resolution: cap to the requested size, else keep the current one (clamped into the codec).
+                    OnvifResolution resolution;
+                    if (options.VideoResolution is { } wanted)
+                    {
+                        var within = codec.Resolutions.Where(r => Area(r) <= Area(wanted)).ToList();
+                        resolution = within.Count > 0 ? within.OrderByDescending(Area).First() : codec.Resolutions.OrderBy(Area).First();
+                    }
+                    else
+                    {
+                        resolution = codec.Resolutions.Contains(encoder.CurrentResolution)
+                            ? encoder.CurrentResolution : codec.Resolutions.OrderByDescending(Area).First();
+                    }
+
                     var applied = options.DryRun
-                        ? new VideoEncoderState(codec.Codec, maxResolution, maxFrameRate)  // planned; no write
-                        : await video.ApplyAsync(
-                            encoder.ConfigurationToken, switchTo, maxResolution, maxFrameRate, cancellationToken);
-                    var requestedCodec = options.PreferredCodecs is { Count: > 0 } prefs ? prefs[0] : applied.Codec;
+                        ? new VideoEncoderState(switchTo ?? encoder.CurrentCodec, resolution, encoder.CurrentFrameRate)
+                        : await video.ApplyAsync(encoder.ConfigurationToken, switchTo, resolution, null, cancellationToken);
                     var outcome = new VideoEncoderOutcome(encoder.ConfigurationToken,
-                        requestedCodec, maxResolution, maxFrameRate,
+                        options.VideoCodec ?? applied.Codec, resolution, null,
                         applied.Codec, applied.Resolution, applied.FrameRate);
                     videoOutcomes.Add(outcome);
                     steps.Add($"{(options.DryRun ? "would set " : "")}video[{encoder.ConfigurationToken}]={applied.Codec} {Format(applied.Resolution)}{FrameRateSuffix(applied.FrameRate)}"
@@ -354,6 +372,9 @@ internal sealed class OnvifDeviceProvisioner(OnvifDeviceClient client) : IProvis
         posixTimeZone is null
             ? client.SetNtpFromComputerTimeZoneAsync(cancellationToken)
             : client.SetNtpTimeAsync(posixTimeZone, true, cancellationToken);
+
+    public Task SetNtpServerAsync(string server, CancellationToken cancellationToken) =>
+        client.SetNtpServerAsync(server, cancellationToken);
 
     public void Dispose() => client.Dispose();
 }

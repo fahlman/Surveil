@@ -12,7 +12,6 @@ public sealed class AppSettings
     public int DefaultTimeoutMs { get; set; } = 400;
     public int DefaultConcurrency { get; set; } = 256;
     public int DiscoverTimeoutMs { get; set; } = 3000;
-    public bool DryRunByDefault { get; set; } = true;
 }
 
 /// <summary>Loads and saves <see cref="AppSettings"/>. Loading never throws (falls back to

@@ -55,7 +55,7 @@ public sealed class CoreTests
     }
 
     [Fact]
-    public async Task MaximizeVideoRespectsResolutionCap()
+    public async Task VideoResolutionCapsToLargestSupported()
     {
         var encoder = new VideoEncoderInfo("enc-1", CanSwitchCodec: true, "H264",
             new OnvifResolution(1280, 720), 30f,
@@ -69,11 +69,11 @@ public sealed class CoreTests
         await service.ProvisionAsync(targets, new BulkProvisionOptions
         {
             SetName = false, SetHostname = false, SetNtp = false, SkipUnknownLocation = false,
-            MaximizeVideo = true, PreferredCodecs = new[] { "H265" },
-            MaxVideoResolution = new OnvifResolution(1920, 1080),
+            VideoCodec = "H265", VideoResolution = new OnvifResolution(1920, 1080),
         });
 
         Assert.Equal(new OnvifResolution(1920, 1080), video.AppliedResolution);  // capped, not 4K
+        Assert.Equal("H265", video.AppliedCodec);  // switched
     }
 
     private sealed class NoopDevice : IProvisionableDevice
@@ -81,6 +81,7 @@ public sealed class CoreTests
         public Task SetNameAsync(string name, CancellationToken cancellationToken) => Task.CompletedTask;
         public Task<bool> SetHostnameAsync(string hostname, CancellationToken cancellationToken) => Task.FromResult(false);
         public Task SetNtpAsync(string? posixTimeZone, CancellationToken cancellationToken) => Task.CompletedTask;
+        public Task SetNtpServerAsync(string server, CancellationToken cancellationToken) => Task.CompletedTask;
         public void Dispose() { }
     }
 
@@ -88,13 +89,15 @@ public sealed class CoreTests
     {
         private readonly IReadOnlyList<VideoEncoderInfo> encoders;
         public OnvifResolution? AppliedResolution { get; private set; }
+        public string? AppliedCodec { get; private set; }
         public FakeVideo(IReadOnlyList<VideoEncoderInfo> encoders) => this.encoders = encoders;
         public Task<IReadOnlyList<VideoEncoderInfo>> GetEncodersAsync(CancellationToken cancellationToken) => Task.FromResult(encoders);
         public Task<VideoEncoderState> ApplyAsync(string configurationToken, string? codec, OnvifResolution resolution,
             float? frameRate, CancellationToken cancellationToken)
         {
             AppliedResolution = resolution;
-            return Task.FromResult(new VideoEncoderState(codec ?? "H265", resolution, frameRate));
+            AppliedCodec = codec;
+            return Task.FromResult(new VideoEncoderState(codec ?? "H264", resolution, frameRate));
         }
         public void Dispose() { }
     }
