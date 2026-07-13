@@ -42,6 +42,19 @@ public sealed class CoreTests
     }
 
     [Fact]
+    public async Task DeviceManagementReadsDeviceInformation()
+    {
+        var handler = new SoapHandler(request =>
+            request.Contains("GetDeviceInformation") ? DeviceInformationResponse : DeviceEmptyResponse);
+        using var client = new OnvifDeviceClient(new Uri("http://camera/onvif/device_service"), new HttpClient(handler));
+        var info = await client.GetDeviceInformationAsync();
+        Assert.Equal("Hikvision", info.Manufacturer);
+        Assert.Equal("DS-2CD2143G0-I", info.Model);
+        Assert.Equal("V5.6.3", info.FirmwareVersion);
+        Assert.Equal("DS-2CD2143G012345", info.SerialNumber);
+    }
+
+    [Fact]
     public async Task DeviceManagementSetsAndVerifiesHostnameWithoutDhcpOverride()
     {
         var handler = new SoapHandler(request => request.Contains("SetHostnameFromDHCP") ? HostnameDhcpResponse :
@@ -489,6 +502,11 @@ public sealed class CoreTests
         "<tt:FromDHCP>false</tt:FromDHCP><tt:Name>camera-01</tt:Name>" +
         "</td:HostnameInformation></td:GetHostnameResponse>" + SoapEnd;
     private const string DeviceEmptyResponse = DeviceSoapStart + "<td:Response/>" + SoapEnd;
+    private const string DeviceInformationResponse = DeviceSoapStart +
+        "<td:GetDeviceInformationResponse><td:Manufacturer>Hikvision</td:Manufacturer>" +
+        "<td:Model>DS-2CD2143G0-I</td:Model><td:FirmwareVersion>V5.6.3</td:FirmwareVersion>" +
+        "<td:SerialNumber>DS-2CD2143G012345</td:SerialNumber><td:HardwareId>88</td:HardwareId>" +
+        "</td:GetDeviceInformationResponse>" + SoapEnd;
     private const string HostnameDhcpResponse = DeviceSoapStart +
         "<td:SetHostnameFromDHCPResponse><td:RebootNeeded>true</td:RebootNeeded></td:SetHostnameFromDHCPResponse>" + SoapEnd;
     private const string UpdatedHostnameResponse = DeviceSoapStart + "<td:GetHostnameResponse><td:HostnameInformation>" +
