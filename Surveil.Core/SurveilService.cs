@@ -5,6 +5,15 @@ namespace Surveil.Core;
 public sealed record DiscoveryCamera(string Ip, string Site, string Area, string XAddresses);
 public sealed record DiscoveryResult(IReadOnlyList<DiscoveryCamera> Cameras, int DistinctSubnets, int DistinctSites);
 
+/// <summary>What a camera is and can do, read after a successful login.</summary>
+public sealed record CameraFeatures(
+    OnvifDeviceInformation Info, OnvifMediaGeneration MediaGeneration,
+    IReadOnlyList<string> Services, IReadOnlyList<CameraEncoderSummary> Encoders);
+
+/// <summary>One video encoder's capability summary: the codecs it offers and its top resolution/rate.</summary>
+public sealed record CameraEncoderSummary(
+    IReadOnlyList<string> Codecs, OnvifResolution MaxResolution, float? MaxFrameRate);
+
 public sealed class SurveilService
 {
     private readonly JsonStore store;
@@ -74,4 +83,64 @@ public sealed class SurveilService
 
     public OnvifDeviceClient CreateDeviceClient(Uri deviceEndpoint, string username, string password) =>
         new(deviceEndpoint, username, password);
+
+    /// <summary>Log into a camera and read what it is and can do: identity, supported services, and
+    /// each video encoder's codecs and top resolution. Throws on bad credentials or an unreachable
+    /// camera — the caller distinguishes the two via <see cref="OnvifException.IsAuthenticationFailure"/>.</summary>
+    public async Task<CameraFeatures> IdentifyAsync(Uri deviceEndpoint, string username, string password,
+        CancellationToken cancellationToken = default)
+    {
+        using var device = new OnvifDeviceClient(deviceEndpoint, username, password);
+        var info = await device.GetDeviceInformationAsync(cancellationToken);
+
+        using var connection = await new OnvifCameraConnector(username, password)
+            .ConnectAsync(deviceEndpoint, null, cancellationToken);
+        var services = FriendlyServiceNames(connection.Capabilities.Services);
+        var encoders = await ReadEncoderSummariesAsync(connection.Video, cancellationToken);
+        return new CameraFeatures(info, connection.Capabilities.MediaGeneration, services, encoders);
+    }
+
+    private static async Task<IReadOnlyList<CameraEncoderSummary>> ReadEncoderSummariesAsync(
+        IOnvifVideoClient video, CancellationToken cancellationToken)
+    {
+        var summaries = new List<CameraEncoderSummary>();
+        foreach (var config in await video.GetVideoEncoderConfigurationsAsync(cancellationToken: cancellationToken))
+        {
+            IReadOnlyList<OnvifVideoEncoderOptions> options;
+            try { options = await video.GetVideoEncoderConfigurationOptionsAsync(config.Token, cancellationToken: cancellationToken); }
+            catch { options = []; }  // some cameras reject per-config options; fall back to the current config
+
+            var codecs = options.Select(o => o.Encoding).Prepend(config.Encoding)
+                .Where(c => !string.IsNullOrWhiteSpace(c)).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+            var resolutions = options.SelectMany(o => o.Resolutions).Append(config.Resolution).ToList();
+            var maxResolution = resolutions.OrderByDescending(r => (long)r.Width * r.Height).First();
+            var frameRates = options.SelectMany(o => o.FrameRates).ToList();
+            float? maxFrameRate = frameRates.Count > 0 ? frameRates.Max() : config.FrameRateLimit;
+            summaries.Add(new CameraEncoderSummary(codecs, maxResolution, maxFrameRate));
+        }
+        return summaries;
+    }
+
+    private static IReadOnlyList<string> FriendlyServiceNames(IReadOnlyList<OnvifService> services)
+    {
+        var names = new List<string>();
+        foreach (var name in services.Select(service => ServiceName(service.Namespace)))
+            if (name is not null && !names.Contains(name)) names.Add(name);
+        return names;
+    }
+
+    private static string? ServiceName(string ns) => ns.ToLowerInvariant() switch
+    {
+        var n when n.Contains("/media/") => "media",
+        var n when n.Contains("/ptz/") => "PTZ",
+        var n when n.Contains("/imaging/") => "imaging",
+        var n when n.Contains("/analytics") => "analytics",
+        var n when n.Contains("/event") => "events",
+        var n when n.Contains("/deviceio/") => "device I/O",
+        var n when n.Contains("/recording/") => "recording",
+        var n when n.Contains("/replay/") => "replay",
+        var n when n.Contains("/receiver/") => "receiver",
+        var n when n.Contains("/device/") => "device",
+        _ => null,
+    };
 }

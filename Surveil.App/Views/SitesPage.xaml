@@ -6,6 +6,7 @@
     xmlns:muxc="using:Microsoft.UI.Xaml.Controls"
     xmlns:conv="using:Surveil.App.Converters"
     xmlns:vm="using:Surveil.App.ViewModels"
+    xmlns:views="using:Surveil.App.Views"
     xmlns:core="using:Surveil.Core"
     NavigationCacheMode="Required">
 
@@ -169,20 +170,7 @@
                                                 <ItemsControl ItemsSource="{x:Bind Cameras}" Margin="30,0,0,4">
                                                     <ItemsControl.ItemTemplate>
                                                         <DataTemplate x:DataType="vm:CameraItem">
-                                                            <Grid ColumnSpacing="8" Padding="0,2">
-                                                                <Grid.ColumnDefinitions>
-                                                                    <ColumnDefinition Width="Auto" />
-                                                                    <ColumnDefinition Width="Auto" />
-                                                                    <ColumnDefinition Width="150" />
-                                                                    <ColumnDefinition Width="*" />
-                                                                </Grid.ColumnDefinitions>
-                                                                <CheckBox Grid.Column="0" MinWidth="0" VerticalAlignment="Center"
-                                                                          IsChecked="{x:Bind IsSelected, Mode=TwoWay}"
-                                                                          ToolTipService.ToolTip="Select this camera to provision" />
-                                                                <FontIcon Grid.Column="1" Glyph="&#xE722;" FontFamily="Segoe MDL2 Assets" FontSize="12" Opacity="0.7" VerticalAlignment="Center" />
-                                                                <TextBlock Grid.Column="2" Text="{x:Bind Ip}" FontFamily="Consolas" VerticalAlignment="Center" />
-                                                                <TextBlock Grid.Column="3" Text="{x:Bind StatusText}" Opacity="0.7" VerticalAlignment="Center" />
-                                                            </Grid>
+                                                            <views:CameraRow />
                                                         </DataTemplate>
                                                     </ItemsControl.ItemTemplate>
                                                 </ItemsControl>
@@ -222,20 +210,7 @@
                               Visibility="{Binding UnmappedExpanded, Converter={StaticResource BoolToVis}}">
                     <ItemsControl.ItemTemplate>
                         <DataTemplate x:DataType="vm:CameraItem">
-                            <Grid ColumnSpacing="8" Padding="0,2">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="Auto" />
-                                    <ColumnDefinition Width="Auto" />
-                                    <ColumnDefinition Width="150" />
-                                    <ColumnDefinition Width="*" />
-                                </Grid.ColumnDefinitions>
-                                <CheckBox Grid.Column="0" MinWidth="0" VerticalAlignment="Center"
-                                          IsChecked="{x:Bind IsSelected, Mode=TwoWay}"
-                                          ToolTipService.ToolTip="Select this camera to provision" />
-                                <FontIcon Grid.Column="1" Glyph="&#xE722;" FontFamily="Segoe MDL2 Assets" FontSize="12" Opacity="0.7" VerticalAlignment="Center" />
-                                <TextBlock Grid.Column="2" Text="{x:Bind Ip}" FontFamily="Consolas" VerticalAlignment="Center" />
-                                <TextBlock Grid.Column="3" Text="{x:Bind StatusText}" Opacity="0.7" VerticalAlignment="Center" />
-                            </Grid>
+                            <views:CameraRow />
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>

@@ -208,6 +208,7 @@ public sealed partial class SitesViewModel : ObservableObject
                 found++;
             }
             OnProvisionSelectionChanged();  // scanned ranges were cleared — drop any stale selections
+            _ = IdentifyFoundCamerasAsync();  // background: log in and read features
             StatusMessage = $"Found {found} camera(s) across {addressesByRange.Count} CIDR(s).";
         }
         catch (OperationCanceledException)
@@ -267,6 +268,7 @@ public sealed partial class SitesViewModel : ObservableObject
             }
             if (UnmappedCameras.Count > 0) UnmappedExpanded = true;
             OnProvisionSelectionChanged();  // Unmapped was rebuilt — drop any stale selections
+            _ = IdentifyFoundCamerasAsync();  // background: log in and read features
             StatusMessage = $"Discovered {result.Cameras.Count} camera(s) — {unmapped} unmapped.";
             return new DiscoverySummary(result.Cameras.Count, unmapped);
         }
@@ -340,6 +342,54 @@ public sealed partial class SitesViewModel : ObservableObject
     {
         var first = xAddresses.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries).FirstOrDefault();
         return Uri.TryCreate(first, UriKind.Absolute, out var uri) ? uri : null;
+    }
+
+    /// <summary>Log into every not-yet-identified camera and read its features, using the Provision
+    /// credentials. Background enrichment: it doesn't set the busy state; each row shows its own
+    /// per-camera login state instead. Bounded concurrency keeps it gentle on the network.</summary>
+    private async Task IdentifyFoundCamerasAsync()
+    {
+        var cameras = Sites.SelectMany(s => s.Children).SelectMany(r => r.Cameras)
+            .Concat(UnmappedCameras)
+            .Where(c => c.LoginState is not CameraLoginState.Success and not CameraLoginState.InProgress)
+            .ToList();
+        if (cameras.Count == 0) return;
+
+        var username = session.Username;
+        var password = session.Password;
+        if (string.IsNullOrWhiteSpace(username))
+        {
+            foreach (var cam in cameras) cam.LoginState = CameraLoginState.NoCredentials;
+            return;
+        }
+
+        using var gate = new SemaphoreSlim(6);
+        var work = cameras.Select(async cam =>
+        {
+            await gate.WaitAsync();
+            cam.LoginState = CameraLoginState.InProgress;
+            try
+            {
+                var endpoint = cam.Endpoint ?? new UriBuilder("http", cam.Ip) { Path = "/onvif/device_service" }.Uri;
+                cam.ApplyFeatures(await session.Service.IdentifyAsync(endpoint, username, password));
+            }
+            catch (OnvifException ex) when (ex.IsAuthenticationFailure)
+            {
+                cam.LoginState = CameraLoginState.AuthFailed;
+                cam.ErrorText = ex.Message;
+            }
+            catch (Exception ex)
+            {
+                cam.LoginState = CameraLoginState.Unreachable;
+                cam.ErrorText = ex.Message;
+                AppLog.Write(ex);
+            }
+            finally
+            {
+                gate.Release();
+            }
+        });
+        await Task.WhenAll(work);
     }
 
     /// <summary>Ranges that are ticked and carry a CIDR — the scan targets offered after discovery.</summary>

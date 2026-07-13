@@ -19,6 +19,28 @@ public sealed class BoolToBrushConverter : IValueConverter
         throw new NotSupportedException();
 }
 
+/// <summary>Camera login state to a status brush for its glyph: green ok, red auth-fail, amber
+/// unreachable, muted otherwise.</summary>
+public sealed class LoginStateToBrushConverter : IValueConverter
+{
+    private static readonly SolidColorBrush Ok = new(Color.FromArgb(0xFF, 0x2E, 0xA0, 0x43));
+    private static readonly SolidColorBrush Bad = new(Color.FromArgb(0xFF, 0xC4, 0x2B, 0x1C));
+    private static readonly SolidColorBrush Warn = new(Color.FromArgb(0xFF, 0xB5, 0x6E, 0x00));
+    private static readonly SolidColorBrush Muted = new(Color.FromArgb(0x99, 0x88, 0x88, 0x88));
+
+    public object Convert(object value, Type targetType, object parameter, string language) =>
+        value?.ToString() switch
+        {
+            "Success" => Ok,
+            "AuthFailed" => Bad,
+            "Unreachable" => Warn,
+            _ => Muted,
+        };
+
+    public object ConvertBack(object value, Type targetType, object parameter, string language) =>
+        throw new NotSupportedException();
+}
+
 /// <summary>Non-empty string to true — used to open an InfoBar when there is a message.</summary>
 public sealed class StringToBoolConverter : IValueConverter
 {

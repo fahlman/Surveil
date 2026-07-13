@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<UserControl
+    x:Class="Surveil.App.Views.CameraRow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:conv="using:Surveil.App.Converters"
+    mc:Ignorable="d"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006">
+
+    <UserControl.Resources>
+        <conv:StringToVisibilityConverter x:Key="StringToVis" />
+        <conv:BoolToVisibilityConverter x:Key="BoolToVis" />
+        <conv:LoginStateToBrushConverter x:Key="StateBrush" />
+    </UserControl.Resources>
+
+    <StackPanel Spacing="0">
+        <!-- Main line: [provision checkbox] camera-icon  IP  state-glyph  identity/status -->
+        <Grid ColumnSpacing="8" Padding="0,2">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="150" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+
+            <CheckBox Grid.Column="0" MinWidth="0" VerticalAlignment="Center"
+                      IsChecked="{Binding IsSelected, Mode=TwoWay}"
+                      ToolTipService.ToolTip="Select this camera to provision" />
+            <FontIcon Grid.Column="1" Glyph="&#xE722;" FontFamily="Segoe MDL2 Assets" FontSize="12" Opacity="0.7" VerticalAlignment="Center" />
+            <TextBlock Grid.Column="2" Text="{Binding Ip}" FontFamily="Consolas" VerticalAlignment="Center" />
+            <FontIcon Grid.Column="3" Glyph="{Binding StateGlyph}" FontFamily="Segoe MDL2 Assets" FontSize="12" VerticalAlignment="Center"
+                      Foreground="{Binding LoginState, Converter={StaticResource StateBrush}}"
+                      Visibility="{Binding HasStateGlyph, Converter={StaticResource BoolToVis}}"
+                      ToolTipService.ToolTip="{Binding ErrorText}" />
+            <TextBlock Grid.Column="4" Text="{Binding StatusLine}" Opacity="0.85" VerticalAlignment="Center"
+                       TextTrimming="CharacterEllipsis" ToolTipService.ToolTip="{Binding StatusLine}" />
+        </Grid>
+
+        <!-- Feature sub-lines, shown once identified. -->
+        <TextBlock Margin="34,0,0,0" Text="{Binding ServicesText}" Opacity="0.6" FontSize="12" TextWrapping="Wrap"
+                   Visibility="{Binding ServicesText, Converter={StaticResource StringToVis}}" />
+        <TextBlock Margin="34,0,0,4" Text="{Binding VideoText}" Opacity="0.6" FontSize="12" FontFamily="Consolas" TextWrapping="Wrap"
+                   Visibility="{Binding VideoText, Converter={StaticResource StringToVis}}" />
+    </StackPanel>
+</UserControl>

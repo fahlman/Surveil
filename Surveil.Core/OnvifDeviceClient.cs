@@ -5,6 +5,8 @@ namespace Surveil.Core;
 
 public sealed record OnvifScope(string Definition, string Item);
 public sealed record OnvifHostnameUpdate(string Hostname, bool RebootRequired);
+public sealed record OnvifDeviceInformation(
+    string Manufacturer, string Model, string FirmwareVersion, string SerialNumber, string HardwareId);
 public sealed record OnvifTimeZone(string SystemIdentifier, string PosixValue, bool DaylightSavings);
 
 public sealed class OnvifDeviceClient : IDisposable
@@ -66,6 +68,17 @@ public sealed class OnvifDeviceClient : IDisposable
         var item = (await GetScopesAsync(cancellationToken)).Select(x => x.Item)
             .FirstOrDefault(x => x.StartsWith("onvif://www.onvif.org/name/", StringComparison.OrdinalIgnoreCase));
         return item is null ? null : Uri.UnescapeDataString(item["onvif://www.onvif.org/name/".Length..]);
+    }
+
+    /// <summary>The camera's make/model/firmware/serial. Also serves as a lightweight authenticated
+    /// probe: it fails if the credentials are wrong. Fields are matched by local name to tolerate
+    /// namespace quirks across vendors.</summary>
+    public async Task<OnvifDeviceInformation> GetDeviceInformationAsync(CancellationToken cancellationToken = default)
+    {
+        var response = await SendAsync("GetDeviceInformation", new XElement(D("GetDeviceInformation")), cancellationToken);
+        string Value(string local) => response.Descendants().FirstOrDefault(e => e.Name.LocalName == local)?.Value?.Trim() ?? "";
+        return new OnvifDeviceInformation(Value("Manufacturer"), Value("Model"),
+            Value("FirmwareVersion"), Value("SerialNumber"), Value("HardwareId"));
     }
 
     public async Task SetCameraNameAsync(string name, CancellationToken cancellationToken = default)
