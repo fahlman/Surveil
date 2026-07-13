@@ -12,7 +12,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     private readonly AppSession session = AppSession.Current;
 
     [ObservableProperty] private string defaultUsername;
-    [ObservableProperty] private int maxProvisionConcurrency;
+    [ObservableProperty] private int maxConfigurationConcurrency;
     [ObservableProperty] private int defaultPort;
     [ObservableProperty] private int defaultTimeoutMs;
     [ObservableProperty] private int defaultConcurrency;
@@ -27,7 +27,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     {
         var s = session.Settings;
         defaultUsername = s.DefaultUsername;
-        maxProvisionConcurrency = s.MaxProvisionConcurrency;
+        maxConfigurationConcurrency = s.MaxConfigurationConcurrency;
         defaultPort = s.DefaultPort;
         defaultTimeoutMs = s.DefaultTimeoutMs;
         defaultConcurrency = s.DefaultConcurrency;
@@ -42,7 +42,7 @@ public sealed partial class SettingsViewModel : ObservableObject
             session.SaveSettings(new AppSettings
             {
                 DefaultUsername = DefaultUsername.Trim(),
-                MaxProvisionConcurrency = MaxProvisionConcurrency,
+                MaxConfigurationConcurrency = MaxConfigurationConcurrency,
                 DefaultPort = DefaultPort,
                 DefaultTimeoutMs = DefaultTimeoutMs,
                 DefaultConcurrency = DefaultConcurrency,
