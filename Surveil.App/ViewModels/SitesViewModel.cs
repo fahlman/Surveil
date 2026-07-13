@@ -10,9 +10,15 @@ namespace Surveil.App.ViewModels;
 /// <summary>The site map as a hierarchical editor: sites (parents) each hold their CIDR
 /// ranges (children). Per-node edit/delete/add live on the nodes themselves; this view model owns
 /// the root list plus save / import / export.</summary>
-public sealed partial class SitesViewModel : ObservableObject
+public sealed partial class SitesViewModel : ObservableObject, IDisposable
 {
-    private readonly AppSession session = AppSession.Current;
+    private readonly AppSession session;
+    private readonly ConfigurationViewModel configuration;
+    private readonly CameraIdentificationCoordinator identifier;
+    private readonly bool demoMode;
+    private CancellationTokenSource? identificationCts;
+    private Task identificationTask = Task.CompletedTask;
+    private bool initialized;
 
     [ObservableProperty] private string statusMessage = "";
     [ObservableProperty] private bool hasError;
@@ -40,33 +46,44 @@ public sealed partial class SitesViewModel : ObservableObject
     [ObservableProperty] private bool unmappedGroupVisible;
     private bool suppressFilter;
 
-    /// <summary>Each facet: a display name and the value(s) a camera contributes to it.</summary>
-    private static readonly (string Name, Func<CameraItem, IEnumerable<string>> Values)[] FacetDefs =
-    {
-        ("Manufacturer", c => Single(c.Manufacturer)),
-        ("Model", c => Single(c.ModelName)),
-        ("Codec", c => c.Codecs),
-        ("Resolution", c => Single(c.ResolutionBucket)),
-        ("Frame rate", c => Single(c.FrameRateBucket)),
-        ("Bitrate", c => Single(c.BitrateBucket)),
-        ("Capability", c => c.Capabilities),
-        ("ONVIF", c => Single(c.MediaGen)),
-        ("Sign-in", c => Single(c.SignInLabel)),
-        ("Location", c => Single(c.LocationLabel)),
-    };
-
-    private static IEnumerable<string> Single(string? value) =>
-        value is null ? Array.Empty<string>() : new[] { value };
-
     private IEnumerable<CameraItem> AllCameras() =>
-        Sites.SelectMany(s => s.Children).SelectMany(r => r.Cameras).Concat(UnmappedCameras);
+        CameraTreeProjector.All(Sites, UnmappedCameras);
 
     public string DataDirectory => session.DataDirectory;
 
-    public SitesViewModel()
+    public SitesViewModel(AppSession session, ConfigurationViewModel configuration, bool demoMode = false)
     {
+        this.session = session;
+        this.configuration = configuration;
+        this.demoMode = demoMode;
+        identifier = new CameraIdentificationCoordinator(session.Service);
+    }
+
+    /// <summary>Explicit page lifecycle initialization; constructors perform no file or network work.</summary>
+    public async Task InitializeAsync()
+    {
+        if (initialized) return;
+        initialized = true;
         Load();
-        _ = LoadInventoryAsync();
+        if (demoMode) SeedDemoCameras();
+        else await LoadInventoryAsync();
+    }
+
+    private void SeedDemoCameras()
+    {
+        var ranges = Sites.SelectMany(site => site.Children
+            .Where(range => !string.IsNullOrWhiteSpace(range.Cidr))
+            .Select(range => (site.Name, range.Name, range.Cidr))).ToList();
+        var index = CameraTreeProjector.BuildRangeIndex(Sites);
+        foreach (var seed in DemoCameras.CreateSeeds(ranges))
+        {
+            var bucket = IPAddress.TryParse(seed.Status.Ip, out var address)
+                ? index.Find(address)?.Cameras ?? UnmappedCameras
+                : UnmappedCameras;
+            CameraTreeProjector.Add(bucket, seed.Status, null, OnConfigurationSelectionChanged)?.ApplyFeatures(seed.Features);
+        }
+        RebuildFacets();
+        OnConfigurationSelectionChanged();
     }
 
     public void Load()
@@ -85,21 +102,7 @@ public sealed partial class SitesViewModel : ObservableObject
         try
         {
             var inventory = await session.Store.LoadInventoryAsync();
-            foreach (var range in Sites.SelectMany(b => b.Children)) range.Cameras.Clear();
-            UnmappedCameras.Clear();
-
-            var sets = RangeAddressSets();
-            foreach (var record in inventory.Cameras)
-            {
-                var camera = new CameraStatus
-                {
-                    Ip = record.Ip, Site = record.Site, Area = record.Area,
-                    FirstSeen = record.FirstSeen, LastSeen = record.LastSeen,
-                };
-                var range = sets.FirstOrDefault(kv => kv.Value.Contains(record.Ip)).Key;
-                if (range is not null) AddCamera(range.Cameras, camera);
-                else AddCamera(UnmappedCameras, camera);
-            }
+            CameraTreeProjector.PopulateInventory(Sites, UnmappedCameras, inventory, OnConfigurationSelectionChanged);
             if (UnmappedCameras.Count > 0) UnmappedExpanded = true;
             OnConfigurationSelectionChanged();
             RebuildFacets();
@@ -184,29 +187,18 @@ public sealed partial class SitesViewModel : ObservableObject
             return;
         }
 
-        // Expand each selected CIDR to the set of addresses it covers (skip invalid ranges).
-        var addressesByRange = new Dictionary<NetworkRangeItem, HashSet<string>>();
-        foreach (var range in selected)
-        {
-            try
-            {
-                addressesByRange[range] = NetworkRanges.ExpandPrivate(new[] { range.Cidr })
-                    .Select(ip => ip.ToString()).ToHashSet();
-            }
-            catch (Exception ex)
-            {
-                AppLog.Write(ex);
-            }
-        }
-        if (addressesByRange.Count == 0)
+        var valid = selected.Where(range => NetworkRanges.IsValid(range.Cidr)).ToList();
+        if (valid.Count == 0)
         {
             HasError = true;
             StatusMessage = "None of the checked CIDRs are valid private ranges.";
             return;
         }
 
-        foreach (var range in addressesByRange.Keys) range.Cameras.Clear();
-        var targets = addressesByRange.Values.SelectMany(set => set).Distinct().ToArray();
+        foreach (var range in valid) range.Cameras.Clear();
+        var rangeIndex = new IpRangeMap<NetworkRangeItem>(valid.Select(range => (range.Cidr, range)));
+        var targets = NetworkRanges.ExpandPrivate(valid.Select(range => range.Cidr))
+            .Select(address => address.ToString()).ToArray();
 
         IsScanning = true;
         HasError = false;
@@ -230,17 +222,17 @@ public sealed partial class SitesViewModel : ObservableObject
                 progress, busyCts.Token);
 
             var found = 0;
-            foreach (var camera in statuses.Where(s => s.Status != "offline"))
+            foreach (var camera in statuses.Where(status => status.Presence != CameraPresenceStatus.Offline))
             {
-                var range = addressesByRange.FirstOrDefault(kv => kv.Value.Contains(camera.Ip)).Key;
+                var range = IPAddress.TryParse(camera.Ip, out var address) ? rangeIndex.Find(address) : null;
                 if (range is null) continue;
-                AddCamera(range.Cameras, camera);
+                CameraTreeProjector.Add(range.Cameras, camera, null, OnConfigurationSelectionChanged);
                 found++;
             }
             OnConfigurationSelectionChanged();  // scanned ranges were cleared — drop any stale selections
             RebuildFacets();
-            _ = IdentifyFoundCamerasAsync();  // background: log in and read features
-            StatusMessage = $"Found {found} camera(s) across {addressesByRange.Count} CIDR(s).";
+            StartIdentification();
+            StatusMessage = $"Found {found} camera(s) across {valid.Count} CIDR(s).";
         }
         catch (OperationCanceledException)
         {
@@ -276,31 +268,34 @@ public sealed partial class SitesViewModel : ObservableObject
             var result = await session.Service.DiscoverAsync(
                 TimeSpan.FromMilliseconds(session.Settings.DiscoverTimeoutMs), busyCts.Token);
 
-            var sets = RangeAddressSets();
+            var ranges = CameraTreeProjector.BuildRangeIndex(Sites);
             UnmappedCameras.Clear();
             var unmapped = 0;
             foreach (var camera in result.Cameras)
             {
                 var status = new CameraStatus
                 {
-                    Ip = camera.Ip, Site = camera.Site, Area = camera.Area, Status = "discovered",
+                    Ip = camera.Ip,
+                    Site = camera.Site,
+                    Area = camera.Area,
+                    Presence = CameraPresenceStatus.Discovered,
                 };
-                var endpoint = EndpointFromXAddresses(camera.XAddresses);
-                var range = sets.FirstOrDefault(kv => kv.Value.Contains(camera.Ip)).Key;
+                var endpoint = OnvifEndpoint.FirstAdvertised(camera.XAddresses);
+                var range = IPAddress.TryParse(camera.Ip, out var address) ? ranges.Find(address) : null;
                 if (range is not null)
                 {
-                    AddCamera(range.Cameras, status, endpoint);
+                    CameraTreeProjector.Add(range.Cameras, status, endpoint, OnConfigurationSelectionChanged);
                 }
                 else
                 {
-                    AddCamera(UnmappedCameras, status, endpoint);
+                    CameraTreeProjector.Add(UnmappedCameras, status, endpoint, OnConfigurationSelectionChanged);
                     unmapped++;
                 }
             }
             if (UnmappedCameras.Count > 0) UnmappedExpanded = true;
             OnConfigurationSelectionChanged();  // Unmapped was rebuilt — drop any stale selections
             RebuildFacets();
-            _ = IdentifyFoundCamerasAsync();  // background: log in and read features
+            StartIdentification();
             StatusMessage = $"Discovered {result.Cameras.Count} camera(s) — {unmapped} unmapped.";
             return new DiscoverySummary(result.Cameras.Count, unmapped);
         }
@@ -330,31 +325,6 @@ public sealed partial class SitesViewModel : ObservableObject
     [RelayCommand]
     private void ToggleUnmapped() => UnmappedExpanded = !UnmappedExpanded;
 
-    /// <summary>Expand every valid mapped CIDR to the set of addresses it covers.</summary>
-    private Dictionary<NetworkRangeItem, HashSet<string>> RangeAddressSets()
-    {
-        var sets = new Dictionary<NetworkRangeItem, HashSet<string>>();
-        foreach (var range in Sites.SelectMany(b => b.Children)
-                     .Where(r => !string.IsNullOrWhiteSpace(r.Cidr)))
-        {
-            try
-            {
-                sets[range] = NetworkRanges.ExpandPrivate(new[] { range.Cidr }).Select(ip => ip.ToString()).ToHashSet();
-            }
-            catch (Exception ex)
-            {
-                AppLog.Write(ex);
-            }
-        }
-        return sets;
-    }
-
-    private void AddCamera(ObservableCollection<CameraItem> cameras, CameraStatus camera, Uri? endpoint = null)
-    {
-        if (cameras.Any(c => c.Ip == camera.Ip)) return;  // dedupe by IP
-        cameras.Add(new CameraItem(camera, endpoint) { SelectionChanged = OnConfigurationSelectionChanged });
-    }
-
     /// <summary>Rebuild the configuration target set from every ticked camera in the tree, carrying
     /// each camera's advertised endpoint so configuration connects exactly where it announced.</summary>
     private void OnConfigurationSelectionChanged()
@@ -365,17 +335,9 @@ public sealed partial class SitesViewModel : ObservableObject
         {
             if (!cam.IsSelected || !IPAddress.TryParse(cam.Ip, out var address) || !seen.Add(cam.Ip)) continue;
             candidates.Add(new ConfigurationCandidate(address, cam.Endpoint, cam.HasVideo,
-                cam.ModelName ?? "Unknown", cam.Codecs, cam.SupportedResolutions,
-                cam.SupportedFrameRates, cam.BitrateRange));
+                cam.ModelName ?? "Unknown", cam.Encoders));
         }
-        session.Configuration.SetSelectedTargets(candidates);
-    }
-
-    /// <summary>First absolute URL from a space-separated WS-Discovery XAddrs list, or null.</summary>
-    private static Uri? EndpointFromXAddresses(string xAddresses)
-    {
-        var first = xAddresses.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries).FirstOrDefault();
-        return Uri.TryCreate(first, UriKind.Absolute, out var uri) ? uri : null;
+        configuration.SetSelectedTargets(candidates);
     }
 
     // --- Faceted filtering ---
@@ -384,79 +346,26 @@ public sealed partial class SitesViewModel : ObservableObject
     /// A facet appears only when at least one camera contributes a value to it.</summary>
     public void RebuildFacets()
     {
-        var cameras = AllCameras().ToList();
-        var previouslySelected = Facets.ToDictionary(g => g.Name, g => g.SelectedValues.ToHashSet());
-
         suppressFilter = true;
-        Facets.Clear();
-        foreach (var (name, values) in FacetDefs)
-        {
-            var distinct = cameras.SelectMany(values).Where(v => !string.IsNullOrWhiteSpace(v))
-                .Distinct().OrderBy(v => v, StringComparer.OrdinalIgnoreCase).ToList();
-            if (distinct.Count == 0) continue;
-
-            var group = new FacetGroup(name);
-            var keep = previouslySelected.TryGetValue(name, out var set) ? set : new HashSet<string>();
-            foreach (var value in distinct)
-                group.Options.Add(new FacetOption(value) { IsSelected = keep.Contains(value), SelectionChanged = OnFacetChanged });
-            Facets.Add(group);
-        }
+        CameraFacetService.Rebuild(Facets, AllCameras().ToList(), OnFacetChanged);
         suppressFilter = false;
         ApplyFilters();
-        foreach (var group in Facets) group.RefreshHeader();
     }
 
     private void OnFacetChanged()
     {
         if (suppressFilter) return;
         ApplyFilters();
-        foreach (var group in Facets) group.RefreshHeader();
     }
 
     /// <summary>Apply the active facet selections: hide non-matching cameras (and now-empty ranges /
     /// sites), and recompute each facet option's count against the other active facets.</summary>
     public void ApplyFilters()
     {
-        var cameras = AllCameras().ToList();
-        var active = Facets.Where(g => g.HasSelection)
-            .Select(g => (Values: FacetDefs.First(d => d.Name == g.Name).Values, Selected: g.SelectedValues.ToHashSet(), g.Name))
-            .ToList();
-        var filtering = active.Count > 0;
-
-        var visible = 0;
-        foreach (var cam in cameras)
-        {
-            cam.IsVisible = !filtering || active.All(a => a.Values(cam).Any(a.Selected.Contains));
-            if (cam.IsVisible) visible++;
-        }
-
-        foreach (var site in Sites)
-        {
-            var siteHasMatch = false;
-            foreach (var range in site.Children)
-            {
-                var rangeHasMatch = range.Cameras.Any(c => c.IsVisible);
-                range.IsVisible = !filtering || rangeHasMatch;
-                siteHasMatch |= rangeHasMatch;
-            }
-            site.IsVisible = !filtering || siteHasMatch;
-        }
-        UnmappedGroupVisible = filtering ? UnmappedCameras.Any(c => c.IsVisible) : UnmappedCameras.Count > 0;
-
-        // Faceted counts: for each option, how many cameras match the OTHER active facets and this value.
-        foreach (var group in Facets)
-        {
-            var others = active.Where(a => a.Name != group.Name).ToList();
-            var def = FacetDefs.First(d => d.Name == group.Name);
-            foreach (var option in group.Options)
-                option.Count = cameras.Count(cam =>
-                    others.All(a => a.Values(cam).Any(a.Selected.Contains)) && def.Values(cam).Contains(option.Value));
-        }
-
-        FilterActive = filtering;
-        FilterSummary = filtering
-            ? $"{visible} of {cameras.Count} cameras"
-            : $"{cameras.Count} camera{(cameras.Count == 1 ? "" : "s")}";
+        var state = CameraFacetService.Apply(AllCameras().ToList(), Sites, UnmappedCameras, Facets);
+        FilterActive = state.Active;
+        FilterSummary = state.Summary;
+        UnmappedGroupVisible = state.UnmappedVisible;
     }
 
     [RelayCommand]
@@ -466,56 +375,31 @@ public sealed partial class SitesViewModel : ObservableObject
         foreach (var option in Facets.SelectMany(g => g.Options)) option.IsSelected = false;
         suppressFilter = false;
         ApplyFilters();
-        foreach (var group in Facets) group.RefreshHeader();
     }
 
-    /// <summary>Log into every not-yet-identified camera and read its features, using the configured
-    /// credentials. Background enrichment: it doesn't set the busy state; each row shows its own
-    /// per-camera login state instead. Bounded concurrency keeps it gentle on the network.</summary>
-    private async Task IdentifyFoundCamerasAsync()
+    private void StartIdentification()
     {
-        var cameras = Sites.SelectMany(s => s.Children).SelectMany(r => r.Cameras)
-            .Concat(UnmappedCameras)
-            .Where(c => c.LoginState is not CameraLoginState.Success and not CameraLoginState.InProgress)
-            .ToList();
+        var cameras = AllCameras().Where(camera =>
+            camera.LoginState is not CameraLoginState.Success and not CameraLoginState.InProgress).ToList();
         if (cameras.Count == 0) return;
+        identificationCts?.Cancel();
+        identificationCts?.Dispose();
+        identificationCts = new CancellationTokenSource();
+        identificationTask = ObserveIdentificationAsync(cameras, identificationCts.Token);
+    }
 
-        var username = session.Username;
-        var password = session.Password;
-        if (string.IsNullOrWhiteSpace(username))
+    private async Task ObserveIdentificationAsync(IReadOnlyList<CameraItem> cameras, CancellationToken cancellationToken)
+    {
+        try
         {
-            foreach (var cam in cameras) cam.LoginState = CameraLoginState.NoCredentials;
-            return;
+            await identifier.IdentifyAsync(cameras, session.Username, session.Password, cancellationToken);
+            if (!cancellationToken.IsCancellationRequested) RebuildFacets();
         }
-
-        using var gate = new SemaphoreSlim(6);
-        var work = cameras.Select(async cam =>
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
+        catch (Exception error)
         {
-            await gate.WaitAsync();
-            cam.LoginState = CameraLoginState.InProgress;
-            try
-            {
-                var endpoint = cam.Endpoint ?? new UriBuilder("http", cam.Ip) { Path = "/onvif/device_service" }.Uri;
-                cam.ApplyFeatures(await session.Service.IdentifyAsync(endpoint, username, password));
-            }
-            catch (OnvifException ex) when (ex.IsAuthenticationFailure)
-            {
-                cam.LoginState = CameraLoginState.AuthFailed;
-                cam.ErrorText = ex.Message;
-            }
-            catch (Exception ex)
-            {
-                cam.LoginState = CameraLoginState.Unreachable;
-                cam.ErrorText = ex.Message;
-                AppLog.Write(ex);
-            }
-            finally
-            {
-                gate.Release();
-            }
-        });
-        await Task.WhenAll(work);
-        RebuildFacets();  // identities are in — the manufacturer/model/codec/… facets can populate
+            AppLog.Write(error);
+        }
     }
 
     /// <summary>Ranges that are ticked and carry a CIDR — the scan targets offered after discovery.</summary>
@@ -524,6 +408,14 @@ public sealed partial class SitesViewModel : ObservableObject
 
     private SurveilConfig ToConfig() =>
         new() { Sites = Sites.Select(site => site.ToSite()).ToList() };
+
+    public void Dispose()
+    {
+        busyCts?.Cancel();
+        identificationCts?.Cancel();
+        busyCts?.Dispose();
+        identificationCts?.Dispose();
+    }
 }
 
 /// <summary>What a discovery run found, for the prompt that offers a follow-up scan.</summary>

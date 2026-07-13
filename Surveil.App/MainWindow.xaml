@@ -28,7 +28,7 @@
                         <FontIcon Glyph="&#xE9F9;" FontFamily="Segoe MDL2 Assets" FontSize="18" />
                         <TextBlock Text="Configuration" Style="{StaticResource SubtitleTextBlockStyle}" />
                     </StackPanel>
-                    <views:ConfigurationPanel Grid.Row="1" />
+                    <views:ConfigurationPanel x:Name="ConfigurationPanelControl" Grid.Row="1" />
                 </Grid>
             </muxc:SplitView.Pane>
 

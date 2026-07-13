@@ -8,65 +8,72 @@ public sealed record DiscoveryResult(IReadOnlyList<DiscoveryCamera> Cameras, int
 /// <summary>What a camera is and can do, read after a successful login.</summary>
 public sealed record CameraFeatures(
     OnvifDeviceInformation Info, OnvifMediaGeneration MediaGeneration,
-    IReadOnlyList<string> Services, IReadOnlyList<CameraEncoderSummary> Encoders);
-
-/// <summary>One video encoder's capability summary: the codecs and resolutions it offers, its
-/// top resolution/rate, the discrete frame rates it supports, and its bitrate window (kbps).</summary>
-public sealed record CameraEncoderSummary(
-    IReadOnlyList<string> Codecs, IReadOnlyList<OnvifResolution> Resolutions,
-    OnvifResolution MaxResolution, float? MaxFrameRate,
-    IReadOnlyList<float> FrameRates, OnvifRange<int>? Bitrate);
+    IReadOnlyList<string> Services, IReadOnlyList<VideoEncoderInfo> Encoders);
 
 public sealed class SurveilService
 {
-    private readonly JsonStore store;
+    private readonly IConfigurationRepository configurations;
+    private readonly IInventoryRepository inventory;
     private readonly ICameraScanner scanner;
     private readonly IWsDiscovery discovery;
 
     public SurveilService(JsonStore? store = null, ICameraScanner? scanner = null, IWsDiscovery? discovery = null)
     {
-        this.store = store ?? new JsonStore();
+        var json = store ?? new JsonStore();
+        configurations = json;
+        inventory = json;
+        this.scanner = scanner ?? new CameraScanner();
+        this.discovery = discovery ?? new WsDiscovery();
+    }
+
+    public SurveilService(IConfigurationRepository configurations, IInventoryRepository inventory,
+        ICameraScanner? scanner = null, IWsDiscovery? discovery = null)
+    {
+        this.configurations = configurations;
+        this.inventory = inventory;
         this.scanner = scanner ?? new CameraScanner();
         this.discovery = discovery ?? new WsDiscovery();
     }
 
     public Task<SurveilConfig> GetConfigAsync(CancellationToken cancellationToken = default) =>
-        store.LoadConfigAsync(cancellationToken);
+        configurations.LoadConfigAsync(cancellationToken);
 
     public Task SaveConfigAsync(SurveilConfig config, CancellationToken cancellationToken = default) =>
-        store.SaveConfigAsync(config, cancellationToken);
+        configurations.SaveConfigAsync(config, cancellationToken);
 
     public Task<SurveilConfig> ImportConfigAsync(string path, CancellationToken cancellationToken = default) =>
-        store.ImportConfigAsync(path, cancellationToken);
+        configurations.ImportConfigAsync(path, cancellationToken);
 
     public Task ExportConfigAsync(string path, CancellationToken cancellationToken = default) =>
-        store.ExportConfigAsync(path, cancellationToken);
+        configurations.ExportConfigAsync(path, cancellationToken);
 
     public async Task<IReadOnlyList<CameraStatus>> ScanAsync(
         IEnumerable<string> targets, int port, int concurrency = 256, TimeSpan? timeout = null,
         IProgress<ScanProgress>? progress = null, CancellationToken cancellationToken = default)
     {
-        var config = await store.LoadConfigAsync(cancellationToken);
+        var config = await configurations.LoadConfigAsync(cancellationToken);
         var addresses = NetworkRanges.ExpandPrivate(targets);
         var scanned = addresses.ToHashSet();
         var foundAddresses = await scanner.ScanAsync(addresses, port, concurrency, timeout, progress, cancellationToken);
         var now = (ulong)DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-        var found = foundAddresses.Select(address => {
+        var found = foundAddresses.Select(address =>
+        {
             var location = NetworkRanges.Locate(config, address);
             return new FoundCamera { Ip = address.ToString(), Site = location?.Site ?? "", Area = location?.Area ?? "" };
         });
-        var previous = await store.LoadInventoryAsync(cancellationToken);
+        var previous = await this.inventory.LoadInventoryAsync(cancellationToken);
         var (inventory, statuses) = InventoryComparer.Diff(previous, found, scanned, now);
-        await store.SaveInventoryAsync(inventory, cancellationToken);
+        await this.inventory.SaveInventoryAsync(inventory, cancellationToken);
         return statuses;
     }
 
     public async Task<DiscoveryResult> DiscoverAsync(
         TimeSpan? timeout = null, CancellationToken cancellationToken = default)
     {
-        var config = await store.LoadConfigAsync(cancellationToken);
+        var config = await configurations.LoadConfigAsync(cancellationToken);
         var responders = await discovery.DiscoverAsync(timeout, cancellationToken);
-        var cameras = responders.Select(responder => {
+        var cameras = responders.Select(responder =>
+        {
             var location = NetworkRanges.Locate(config, responder.Ip);
             return new DiscoveryCamera(responder.Ip.ToString(), location?.Site ?? "",
                 location?.Area ?? "", responder.XAddresses);
@@ -103,27 +110,25 @@ public sealed class SurveilService
         return new CameraFeatures(info, connection.Capabilities.MediaGeneration, services, encoders);
     }
 
-    private static async Task<IReadOnlyList<CameraEncoderSummary>> ReadEncoderSummariesAsync(
+    private static async Task<IReadOnlyList<VideoEncoderInfo>> ReadEncoderSummariesAsync(
         IOnvifVideoClient video, CancellationToken cancellationToken)
     {
-        var summaries = new List<CameraEncoderSummary>();
+        var summaries = new List<VideoEncoderInfo>();
         foreach (var config in await video.GetVideoEncoderConfigurationsAsync(cancellationToken: cancellationToken))
         {
             IReadOnlyList<OnvifVideoEncoderOptions> options;
             try { options = await video.GetVideoEncoderConfigurationOptionsAsync(config.Token, cancellationToken: cancellationToken); }
             catch { options = []; }  // some cameras reject per-config options; fall back to the current config
 
-            var codecs = options.Select(o => o.Encoding).Prepend(config.Encoding)
-                .Where(c => !string.IsNullOrWhiteSpace(c)).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
-            var resolutions = options.SelectMany(o => o.Resolutions).Append(config.Resolution).Distinct().ToList();
-            var maxResolution = resolutions.OrderByDescending(r => (long)r.Width * r.Height).First();
-            var frameRates = options.SelectMany(o => o.FrameRates).ToList();
-            float? maxFrameRate = frameRates.Count > 0 ? frameRates.Max() : config.FrameRateLimit;
-            var distinctRates = frameRates.Distinct().OrderByDescending(r => r).ToList();
-            OnvifRange<int>? bitrate = options.Count > 0
-                ? new OnvifRange<int>(options.Min(o => o.Bitrate.Minimum), options.Max(o => o.Bitrate.Maximum))
-                : config.BitrateLimit is { } limit ? new OnvifRange<int>(limit, limit) : null;
-            summaries.Add(new CameraEncoderSummary(codecs, resolutions, maxResolution, maxFrameRate, distinctRates, bitrate));
+            var codecs = options.Select(option => new CodecCapability(option.Encoding,
+                    option.Resolutions.Distinct().ToArray(), option.FrameRates.Distinct().ToArray(), option.Bitrate))
+                .ToList();
+            if (codecs.Count == 0)
+                codecs.Add(new CodecCapability(config.Encoding, [config.Resolution],
+                    config.FrameRateLimit is { } fps ? [fps] : [],
+                    config.BitrateLimit is { } bitrate ? new OnvifRange<int>(bitrate, bitrate) : null));
+            summaries.Add(new VideoEncoderInfo(config.Token, video.Generation == OnvifMediaGeneration.Media2,
+                config.Encoding, config.Resolution, config.FrameRateLimit, codecs, config.BitrateLimit));
         }
         return summaries;
     }

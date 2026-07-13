@@ -2,6 +2,8 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Surveil.App.ViewModels;
 using Windows.Storage.Pickers;
+using Microsoft.UI.Xaml.Navigation;
+using Surveil.App.Services;
 
 namespace Surveil.App.Views;
 
@@ -12,7 +14,24 @@ public sealed partial class SitesPage : Page
     public SitesPage()
     {
         InitializeComponent();
-        DataContext = new SitesViewModel();
+        Loaded += OnLoaded;
+    }
+
+    protected override void OnNavigatedTo(NavigationEventArgs e)
+    {
+        base.OnNavigatedTo(e);
+        if (DataContext is null && e.Parameter is AppServices services)
+            DataContext = new SitesViewModel(services.Session, services.Configuration, services.DemoMode);
+    }
+
+    private async void OnLoaded(object sender, RoutedEventArgs e)
+    {
+        try { await Vm.InitializeAsync(); }
+        catch (Exception error)
+        {
+            AppLog.Write(error);
+            App.ShowError("Unable to load sites", error.Message);
+        }
     }
 
     private async void OnImportClick(object sender, RoutedEventArgs e)

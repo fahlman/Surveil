@@ -63,7 +63,12 @@ guard against accidentally selecting an overly broad range.
 
 ```powershell
 dotnet test Surveil.Core.Tests/Surveil.Core.Tests.csproj
+dotnet test Surveil.App.Tests/Surveil.App.Tests.csproj
+dotnet build Surveil.App/Surveil.App.csproj -c Debug -r win-x64
 ```
+
+Set `SURVEIL_DEMO=1` before launching a Debug build to populate the Sites page with
+development-only camera fixtures. Normal launches always load the persisted inventory.
 
 The ONVIF clients use HTTP Digest authentication through .NET and accept an
 injectable `HttpClient` for testing.

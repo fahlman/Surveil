@@ -44,11 +44,14 @@ internal static class ConfigMigration
         var config = new SurveilConfig();
         foreach (var item in root.GetProperty("buildings").EnumerateArray())
         {
-            var building = new Site {
-                Name = Text(item, "name"), Notes = Text(item, "notes")
+            var building = new Site
+            {
+                Name = Text(item, "name"),
+                Notes = Text(item, "notes")
             };
             if (item.TryGetProperty("ranges", out var ranges))
-                building.Ranges.AddRange(ranges.EnumerateArray().Select(range => {
+                building.Ranges.AddRange(ranges.EnumerateArray().Select(range =>
+                {
                     var cidr = range.GetString() ?? "";
                     return new NetworkRange { Name = FloorNameFromCidr(cidr), Cidr = cidr };
                 }));
@@ -91,28 +94,46 @@ internal static class ConfigMigration
             config.Sites.Add(building);
         }
         if (root.TryGetProperty("subnets", out var subnets) && subnets.GetArrayLength() > 0)
-            config.Sites.Add(new Site { Name = "Subnets", Ranges = subnets.EnumerateArray()
-                .Select(value => new NetworkRange { Cidr = value.GetString() ?? "" }).ToList() });
+            config.Sites.Add(new Site
+            {
+                Name = "Subnets",
+                Ranges = subnets.EnumerateArray()
+                .Select(value => new NetworkRange { Cidr = value.GetString() ?? "" }).ToList()
+            });
         return config;
     }
 
     private static string ExpandTokens(string[] tokens, int building, int level) => string.Join('.',
-        tokens.Select(token => token.Trim().ToLowerInvariant() switch {
-            "building" => building.ToString(), "level" => level.ToString(), "host" => "0", _ => token
+        tokens.Select(token => token.Trim().ToLowerInvariant() switch
+        {
+            "building" => building.ToString(),
+            "level" => level.ToString(),
+            "host" => "0",
+            _ => token
         })) + "/24";
 
-    private static NetworkRange FloorRange(int building, int code) => new() {
-        Name = FloorName(code), Cidr = $"10.{building}.{code}.0/24"
+    private static NetworkRange FloorRange(int building, int code) => new()
+    {
+        Name = FloorName(code),
+        Cidr = $"10.{building}.{code}.0/24"
     };
 
     private static string FloorNameFromCidr(string cidr) =>
         cidr.Split('.').Skip(2).FirstOrDefault() is { } part && int.TryParse(part.Split('/')[0], out var code)
             ? FloorName(code) : "";
 
-    private static string FloorName(int code) => code switch {
-        61 => "First Floor", 62 => "Second Floor", 63 => "Third Floor", 64 => "Fourth Floor",
-        65 => "Fifth Floor", 66 => "Sixth Floor", 67 => "Seventh Floor", 68 => "Basement",
-        69 => "Ground Floor", _ => ""
+    private static string FloorName(int code) => code switch
+    {
+        61 => "First Floor",
+        62 => "Second Floor",
+        63 => "Third Floor",
+        64 => "Fourth Floor",
+        65 => "Fifth Floor",
+        66 => "Sixth Floor",
+        67 => "Seventh Floor",
+        68 => "Basement",
+        69 => "Ground Floor",
+        _ => ""
     };
 
     private static string Text(JsonElement element, string name) =>

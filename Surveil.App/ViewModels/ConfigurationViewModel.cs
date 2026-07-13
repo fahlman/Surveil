@@ -12,7 +12,7 @@ namespace Surveil.App.ViewModels;
 /// ticked camera and appends a truthful per-camera outcome to the configuration log.</summary>
 public sealed partial class ConfigurationViewModel : ObservableObject
 {
-    private readonly AppSession session = AppSession.Current;
+    private readonly AppSession session;
     private CancellationTokenSource? cts;
 
     [ObservableProperty] private string targets = "";
@@ -65,6 +65,7 @@ public sealed partial class ConfigurationViewModel : ObservableObject
     [ObservableProperty][NotifyPropertyChangedFor(nameof(VideoHiddenNote))] private bool showVideoSection;
 
     private bool someHaveVideo;
+    private bool recomputingVideo;
 
     /// <summary>Explains a Video section that dropped out because the selection mixes cameras that
     /// have encoders with ones that don't.</summary>
@@ -111,61 +112,58 @@ public sealed partial class ConfigurationViewModel : ObservableObject
 
     private void RecomputeVideoIntersection()
     {
-        someHaveVideo = selection.Any(camera => camera.HasVideo);
-
-        var codecs = Intersection(selection.Select(camera => camera.Codecs))
-            .OrderBy(codec => codec, StringComparer.OrdinalIgnoreCase).ToList();
-        AvailableCodecs.Clear();
-        AvailableCodecs.Add(LeaveCodec);
-        foreach (var codec in codecs) AvailableCodecs.Add(codec);
-        if (!AvailableCodecs.Contains(SelectedCodec)) SelectedCodec = LeaveCodec;
-
-        var previousResolution = SelectedResolution?.Resolution;
-        var resolutions = Intersection(selection.Select(camera => camera.Resolutions))
-            .OrderByDescending(r => (long)r.Width * r.Height).ToList();
-        AvailableResolutions.Clear();
-        AvailableResolutions.Add(LeaveResolution);
-        foreach (var r in resolutions) AvailableResolutions.Add(new ResolutionChoice(r, $"{r.Width} × {r.Height}"));
-        SelectedResolution = AvailableResolutions.FirstOrDefault(choice => choice.Resolution == previousResolution) ?? LeaveResolution;
-
-        var previousFps = SelectedFrameRate?.Fps;
-        var frameRates = Intersection(selection.Select(camera => camera.FrameRates))
-            .OrderByDescending(r => r).ToList();
-        AvailableFrameRates.Clear();
-        AvailableFrameRates.Add(LeaveFrameRate);
-        foreach (var r in frameRates) AvailableFrameRates.Add(new FrameRateChoice(r, $"{Math.Round(r)} fps"));
-        SelectedFrameRate = AvailableFrameRates.FirstOrDefault(choice => choice.Fps == previousFps) ?? LeaveFrameRate;
-
-        // Bitrate window a single value can satisfy across the whole selection: only when every camera
-        // advertises a range and those ranges overlap (max of the mins ≤ min of the maxes).
-        var ranges = selection.Select(camera => camera.Bitrate).OfType<OnvifRange<int>>().ToList();
-        if (selection.Count > 0 && ranges.Count == selection.Count &&
-            ranges.Max(r => r.Minimum) is var lo && ranges.Min(r => r.Maximum) is var hi && lo <= hi)
+        if (recomputingVideo) return;
+        recomputingVideo = true;
+        try
         {
-            BitrateMinKbps = lo;
-            BitrateMaxKbps = hi;
-            CanSetBitrate = true;
-        }
-        else
-        {
-            CanSetBitrate = false;
-            BitrateKbps = double.NaN;
-        }
+            someHaveVideo = selection.Any(camera => camera.HasVideo);
 
-        ShowVideoSection = selection.Count > 0 && selection.All(camera => camera.HasVideo);
-        OnPropertyChanged(nameof(VideoHiddenNote));
+            var baseCapabilities = VideoCapabilityIntersection.ForSelection(selection.Select(camera => camera.Encoders));
+            var codecs = baseCapabilities.Codecs;
+            AvailableCodecs.Clear();
+            AvailableCodecs.Add(LeaveCodec);
+            foreach (var codec in codecs) AvailableCodecs.Add(codec);
+            if (!AvailableCodecs.Contains(SelectedCodec)) SelectedCodec = LeaveCodec;
+
+            var capabilities = VideoCapabilityIntersection.ForSelection(selection.Select(camera => camera.Encoders),
+                SelectedCodec == LeaveCodec ? null : SelectedCodec);
+
+            var previousResolution = SelectedResolution?.Resolution;
+            AvailableResolutions.Clear();
+            AvailableResolutions.Add(LeaveResolution);
+            foreach (var r in capabilities.Resolutions)
+                AvailableResolutions.Add(new ResolutionChoice(r, $"{r.Width} × {r.Height}"));
+            SelectedResolution = AvailableResolutions.FirstOrDefault(choice => choice.Resolution == previousResolution) ?? LeaveResolution;
+
+            var previousFps = SelectedFrameRate?.Fps;
+            AvailableFrameRates.Clear();
+            AvailableFrameRates.Add(LeaveFrameRate);
+            foreach (var r in capabilities.FrameRates)
+                AvailableFrameRates.Add(new FrameRateChoice(r, $"{Math.Round(r)} fps"));
+            SelectedFrameRate = AvailableFrameRates.FirstOrDefault(choice => choice.Fps == previousFps) ?? LeaveFrameRate;
+
+            if (capabilities.Bitrate is { } bitrate)
+            {
+                BitrateMinKbps = bitrate.Minimum;
+                BitrateMaxKbps = bitrate.Maximum;
+                CanSetBitrate = true;
+            }
+            else
+            {
+                CanSetBitrate = false;
+                BitrateKbps = double.NaN;
+            }
+
+            ShowVideoSection = baseCapabilities.EveryCameraHasVideo;
+            OnPropertyChanged(nameof(VideoHiddenNote));
+        }
+        finally
+        {
+            recomputingVideo = false;
+        }
     }
 
-    private static IReadOnlyList<T> Intersection<T>(IEnumerable<IEnumerable<T>> sets)
-    {
-        HashSet<T>? accumulator = null;
-        foreach (var set in sets)
-        {
-            if (accumulator is null) accumulator = new HashSet<T>(set);
-            else accumulator.IntersectWith(set);
-        }
-        return accumulator?.ToList() ?? new List<T>();
-    }
+    partial void OnSelectedCodecChanged(string value) => RecomputeVideoIntersection();
 
     private static IReadOnlyList<TimeZoneChoice> BuildTimeZones()
     {
@@ -188,8 +186,9 @@ public sealed partial class ConfigurationViewModel : ObservableObject
     /// <summary>The selected camera IPs, for the pre-write confirmation dialog.</summary>
     public IReadOnlyList<string> SelectedIps => selection.Select(camera => camera.Address.ToString()).ToList();
 
-    public ConfigurationViewModel()
+    public ConfigurationViewModel(AppSession session)
     {
+        this.session = session;
         selectedResolution = LeaveResolution;
         selectedFrameRate = LeaveFrameRate;
         selectedTimeZone = AvailableTimeZones[0];  // "Leave unchanged"
@@ -197,7 +196,39 @@ public sealed partial class ConfigurationViewModel : ObservableObject
 
     /// <summary>Apply the selected identity/NTP/video settings to the ticked cameras. Called from the
     /// panel, which gates the write behind a confirmation; every outcome is appended to the log.</summary>
-    public async Task ApplyAsync()
+    public ConfigurationRequest BuildRequest()
+    {
+        var options = new BulkConfigurationOptions
+        {
+            SetName = SingleCameraSelected && !string.IsNullOrWhiteSpace(Name),
+            Name = Name.Trim(),
+            SetHostname = SingleCameraSelected && !string.IsNullOrWhiteSpace(Hostname),
+            Hostname = Hostname.Trim(),
+            SetNtp = SelectedTimeZone is { LeaveUnchanged: false },
+            NtpPosixTimeZone = SelectedTimeZone?.Posix,
+            NtpServer = string.IsNullOrWhiteSpace(NtpServer) ? null : NtpServer.Trim(),
+            VideoCodec = ShowVideoSection && SelectedCodec != LeaveCodec ? SelectedCodec : null,
+            VideoResolution = ShowVideoSection ? SelectedResolution?.Resolution : null,
+            VideoFrameRate = ShowVideoSection ? SelectedFrameRate?.Fps : null,
+            VideoBitrateKbps = ShowVideoSection && CanSetBitrate && !double.IsNaN(BitrateKbps) && BitrateKbps > 0
+                ? (int)Math.Round(BitrateKbps) : null,
+            SkipUnknownLocation = false,
+            MaxConcurrency = Math.Max(1, session.Settings.MaxConfigurationConcurrency),
+            DryRun = false,
+        };
+        var actions = new List<string>();
+        if (options.SetName) actions.Add($"name = {options.Name}");
+        if (options.SetHostname) actions.Add($"hostname = {options.Hostname}");
+        if (options.NtpServer is not null) actions.Add($"NTP server = {options.NtpServer}");
+        if (options.SetNtp) actions.Add($"time zone = {SelectedTimeZone?.Label}");
+        if (options.VideoCodec is not null) actions.Add($"codec = {options.VideoCodec}");
+        if (options.VideoResolution is { } resolution) actions.Add($"resolution = {resolution.Width}×{resolution.Height}");
+        if (options.VideoFrameRate is { } fps) actions.Add($"frame rate = {Math.Round(fps)} fps");
+        if (options.VideoBitrateKbps is { } kbps) actions.Add($"bitrate = {kbps} kbps");
+        return new ConfigurationRequest(options, actions);
+    }
+
+    public async Task ApplyAsync(ConfigurationRequest? request = null)
     {
         if (IsBusy) return;
         HasError = false;
@@ -239,24 +270,7 @@ public sealed partial class ConfigurationViewModel : ObservableObject
         StatusMessage = "Applying…";
         cts = new CancellationTokenSource();
 
-        var options = new BulkConfigurationOptions
-        {
-            SetName = SingleCameraSelected && !string.IsNullOrWhiteSpace(Name),
-            Name = Name.Trim(),
-            SetHostname = SingleCameraSelected && !string.IsNullOrWhiteSpace(Hostname),
-            Hostname = Hostname.Trim(),
-            SetNtp = SelectedTimeZone is { LeaveUnchanged: false },
-            NtpPosixTimeZone = SelectedTimeZone?.Posix,
-            NtpServer = string.IsNullOrWhiteSpace(NtpServer) ? null : NtpServer.Trim(),
-            VideoCodec = ShowVideoSection && SelectedCodec != LeaveCodec ? SelectedCodec : null,
-            VideoResolution = ShowVideoSection ? SelectedResolution?.Resolution : null,
-            VideoFrameRate = ShowVideoSection ? SelectedFrameRate?.Fps : null,
-            VideoBitrateKbps = ShowVideoSection && CanSetBitrate && !double.IsNaN(BitrateKbps) && BitrateKbps > 0
-                ? (int)Math.Round(BitrateKbps) : null,
-            SkipUnknownLocation = false,  // selection is explicit — configure exactly what's ticked
-            MaxConcurrency = Math.Max(1, session.Settings.MaxConfigurationConcurrency),
-            DryRun = false,
-        };
+        var options = (request ?? BuildRequest()).Options;
 
         var progress = new Progress<BulkConfigurationProgress>(p =>
         {
@@ -330,5 +344,6 @@ public sealed record TimeZoneChoice(string Label, string? Posix, bool LeaveUncha
 /// its discovered features to compute the settable-capability intersection.</summary>
 public sealed record ConfigurationCandidate(
     IPAddress Address, Uri? Endpoint, bool HasVideo, string Model,
-    IReadOnlyList<string> Codecs, IReadOnlyList<OnvifResolution> Resolutions,
-    IReadOnlyList<float> FrameRates, OnvifRange<int>? Bitrate);
+    IReadOnlyList<VideoEncoderInfo> Encoders);
+
+public sealed record ConfigurationRequest(BulkConfigurationOptions Options, IReadOnlyList<string> Actions);

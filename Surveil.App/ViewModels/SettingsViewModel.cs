@@ -9,7 +9,7 @@ namespace Surveil.App.ViewModels;
 /// and updates the shared session; the password is never part of settings.</summary>
 public sealed partial class SettingsViewModel : ObservableObject
 {
-    private readonly AppSession session = AppSession.Current;
+    private readonly AppSession session;
 
     [ObservableProperty] private string defaultUsername;
     [ObservableProperty] private int maxConfigurationConcurrency;
@@ -23,8 +23,9 @@ public sealed partial class SettingsViewModel : ObservableObject
 
     public string DataDirectory => session.DataDirectory;
 
-    public SettingsViewModel()
+    public SettingsViewModel(AppSession session)
     {
+        this.session = session;
         var s = session.Settings;
         defaultUsername = s.DefaultUsername;
         maxConfigurationConcurrency = s.MaxConfigurationConcurrency;

@@ -7,16 +7,20 @@ namespace Surveil.App;
 
 public sealed partial class MainWindow : Window
 {
-    public MainWindow()
+    private readonly AppServices services;
+
+    public MainWindow(AppServices services)
     {
+        this.services = services;
         InitializeComponent();
+        ConfigurationPanelControl.Initialize(services.Configuration);
         Title = "Surveil — ONVIF camera configuration";
     }
 
     private async void Nav_Loaded(object sender, RoutedEventArgs e)
     {
         // Load the site map once up front so every page starts from the same config.
-        try { await AppSession.Current.LoadConfigAsync(); }
+        try { await services.Session.LoadConfigAsync(); }
         catch { /* first run / missing file: keep the empty default config */ }
 
         Nav.SelectedItem = Nav.MenuItems[0];
@@ -33,6 +37,6 @@ public sealed partial class MainWindow : Window
             _ => typeof(SitesPage),
         };
 
-        ContentFrame.Navigate(page);
+        ContentFrame.Navigate(page, services);
     }
 }

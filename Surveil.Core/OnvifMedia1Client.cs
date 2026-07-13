@@ -1,5 +1,4 @@
 using System.Globalization;
-using System.Net;
 using System.Xml.Linq;
 
 namespace Surveil.Core;
@@ -9,26 +8,23 @@ public sealed class OnvifMedia1Client : IOnvifVideoClient
 {
     public const string MediaNamespace = "http://www.onvif.org/ver10/media/wsdl";
     public const string SchemaNamespace = "http://www.onvif.org/ver10/schema";
-    private readonly HttpClient http;
-    private readonly bool ownsHttpClient;
+    private readonly OnvifSoapTransport transport;
     public OnvifMediaGeneration Generation => OnvifMediaGeneration.Media1;
-    public Uri Endpoint { get; }
+    public Uri Endpoint => transport.Endpoint;
 
     public OnvifMedia1Client(Uri endpoint, string username, string password)
     {
-        Endpoint = endpoint;
-        http = new HttpClient(new HttpClientHandler {
-            Credentials = new NetworkCredential(username, password), PreAuthenticate = true
-        });
-        ownsHttpClient = true;
+        transport = new OnvifSoapTransport(endpoint, username, password);
     }
 
-    public OnvifMedia1Client(Uri endpoint, HttpClient httpClient) => (Endpoint, http) = (endpoint, httpClient);
+    public OnvifMedia1Client(Uri endpoint, HttpClient httpClient) =>
+        transport = new OnvifSoapTransport(endpoint, httpClient);
 
     public async Task<IReadOnlyList<OnvifMediaProfile>> GetProfilesAsync(CancellationToken cancellationToken = default)
     {
         var response = await SendAsync("GetProfiles", new XElement(M("GetProfiles")), cancellationToken);
-        return response.Descendants(M("Profiles")).Select(profile => {
+        return response.Descendants(M("Profiles")).Select(profile =>
+        {
             var encoder = profile.Element(S("VideoEncoderConfiguration"));
             var source = profile.Element(S("VideoSourceConfiguration"));
             return new OnvifMediaProfile(Attribute(profile, "token"), Value(profile, "Name") ?? "",
@@ -41,13 +37,18 @@ public sealed class OnvifMedia1Client : IOnvifVideoClient
     {
         XElement request;
         string operation;
-        if (configurationToken is not null) {
+        if (configurationToken is not null)
+        {
             operation = "GetVideoEncoderConfiguration";
             request = new XElement(M(operation), new XElement(M("ConfigurationToken"), configurationToken));
-        } else if (profileToken is not null) {
+        }
+        else if (profileToken is not null)
+        {
             operation = "GetCompatibleVideoEncoderConfigurations";
             request = new XElement(M(operation), new XElement(M("ProfileToken"), profileToken));
-        } else {
+        }
+        else
+        {
             operation = "GetVideoEncoderConfigurations";
             request = new XElement(M(operation));
         }
@@ -118,7 +119,8 @@ public sealed class OnvifMedia1Client : IOnvifVideoClient
     private static void AddCodec(XElement root, string elementName, string encoding,
         OnvifRange<int> quality, List<OnvifVideoEncoderOptions> result)
     {
-        foreach (var codec in root.Elements(S(elementName))) {
+        foreach (var codec in root.Elements(S(elementName)))
+        {
             var frame = Range(codec.Element(S("FrameRateRange"))!);
             var bitrate = Range(codec.Element(S("BitrateRange"))!);
             var govElement = codec.Element(S("GovLengthRange"));
@@ -131,7 +133,7 @@ public sealed class OnvifMedia1Client : IOnvifVideoClient
     }
 
     private async Task<XElement> SendAsync(string operation, XElement body, CancellationToken cancellationToken) =>
-        await OnvifSoap.SendAsync(http, Endpoint, MediaNamespace, operation, body, cancellationToken);
+        await transport.SendAsync(MediaNamespace, operation, body, cancellationToken);
     private async Task SendAndDiscardAsync(string operation, XElement body, CancellationToken cancellationToken) =>
         _ = await SendAsync(operation, body, cancellationToken);
 
@@ -158,5 +160,5 @@ public sealed class OnvifMedia1Client : IOnvifVideoClient
     private static int? IntOrNull(XElement? e, string name) => int.TryParse(Value(e, name), out var x) ? x : null;
     private static float Float(XElement e, string name) => float.Parse(Value(e, name)!, CultureInfo.InvariantCulture);
     private static OnvifRange<int> Range(XElement e) => new(Int(e, "Min"), Int(e, "Max"));
-    public void Dispose() { if (ownsHttpClient) http.Dispose(); }
+    public void Dispose() => transport.Dispose();
 }

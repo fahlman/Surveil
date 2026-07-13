@@ -22,7 +22,7 @@ public partial class App : Application
 
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {
-        MainWindow = new MainWindow();
+        MainWindow = new MainWindow(AppServices.Create());
         MainWindow.Activate();
     }
 

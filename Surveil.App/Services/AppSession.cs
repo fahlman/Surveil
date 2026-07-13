@@ -1,4 +1,3 @@
-using Surveil.App.ViewModels;
 using Surveil.Core;
 
 namespace Surveil.App.Services;
@@ -8,8 +7,6 @@ namespace Surveil.App.Services;
 /// and is never written to disk.</summary>
 public sealed class AppSession
 {
-    public static AppSession Current { get; } = new();
-
     public JsonStore Store { get; }
     public SurveilService Service { get; }
     public SettingsStore SettingsStore { get; }
@@ -25,7 +22,7 @@ public sealed class AppSession
     public string Username { get; set; }
     public string Password { get; set; } = "";
 
-    private AppSession()
+    public AppSession()
     {
         Store = new JsonStore();
         Service = new SurveilService(Store);
@@ -47,21 +44,4 @@ public sealed class AppSession
     public async Task LoadConfigAsync(CancellationToken cancellationToken = default) =>
         Config = await Service.GetConfigAsync(cancellationToken);
 
-    // --- Configuration drawer (single shared instance so Scan/Discover can push targets to it) ---
-
-    private ConfigurationViewModel? configuration;
-
-    /// <summary>The one Configuration view model behind the right-side drawer. Created lazily so it
-    /// isn't built during this singleton's own construction.</summary>
-    public ConfigurationViewModel Configuration => configuration ??= new ConfigurationViewModel();
-
-    /// <summary>Raised when a page asks to open the Configuration drawer (e.g. "Send to Configuration").</summary>
-    public event Action? ConfigurationDrawerRequested;
-
-    /// <summary>Load addresses into the Configuration panel and ask the shell to open the drawer.</summary>
-    public void RequestConfiguration(string targets)
-    {
-        Configuration.Targets = targets;
-        ConfigurationDrawerRequested?.Invoke();
-    }
 }

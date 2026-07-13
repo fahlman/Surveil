@@ -16,17 +16,22 @@ public static class InventoryComparer
         {
             foundIps.Add(camera.Ip);
             var exists = prior.TryGetValue(camera.Ip, out var old);
-            var record = new CameraRecord {
-                Ip = camera.Ip, Site = camera.Site, Area = camera.Area,
-                FirstSeen = exists ? old!.FirstSeen : now, LastSeen = now
+            var record = new CameraRecord
+            {
+                Ip = camera.Ip,
+                Site = camera.Site,
+                Area = camera.Area,
+                FirstSeen = exists ? old!.FirstSeen : now,
+                LastSeen = now
             };
             records.Add(record);
-            statuses.Add(Status(record, exists ? "present" : "new"));
+            statuses.Add(Status(record, exists ? CameraPresenceStatus.Present : CameraPresenceStatus.New));
         }
 
         foreach (var old in previous.Cameras.Where(camera => !foundIps.Contains(camera.Ip)))
         {
-            if (IPAddress.TryParse(old.Ip, out var ip) && scanned.Contains(ip)) statuses.Add(Status(old, "absent"));
+            if (IPAddress.TryParse(old.Ip, out var ip) && scanned.Contains(ip))
+                statuses.Add(Status(old, CameraPresenceStatus.Absent));
             records.Add(old);
         }
 
@@ -35,9 +40,14 @@ public static class InventoryComparer
         return (new Inventory { LastScan = now, Cameras = records }, statuses);
     }
 
-    private static CameraStatus Status(CameraRecord record, string status) => new() {
-        Ip = record.Ip, Site = record.Site, Area = record.Area,
-        FirstSeen = record.FirstSeen, LastSeen = record.LastSeen, Status = status
+    private static CameraStatus Status(CameraRecord record, CameraPresenceStatus status) => new()
+    {
+        Ip = record.Ip,
+        Site = record.Site,
+        Area = record.Area,
+        FirstSeen = record.FirstSeen,
+        LastSeen = record.LastSeen,
+        Presence = status
     };
 
     private static int CompareIp(string left, string right) =>

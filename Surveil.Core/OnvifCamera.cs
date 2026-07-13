@@ -46,12 +46,16 @@ public sealed class OnvifCameraConnector
     public const string Media2Namespace = "http://www.onvif.org/ver20/media/wsdl";
     private readonly Func<Uri, HttpClient> httpClientFactory;
 
-    public OnvifCameraConnector(string username, string password) : this(_ => {
-        var handler = new HttpClientHandler {
-            Credentials = new NetworkCredential(username, password), PreAuthenticate = true
+    public OnvifCameraConnector(string username, string password) : this(_ =>
+    {
+        var handler = new HttpClientHandler
+        {
+            Credentials = new NetworkCredential(username, password),
+            PreAuthenticate = true
         };
         return new HttpClient(handler);
-    }) { }
+    })
+    { }
 
     public OnvifCameraConnector(Func<Uri, HttpClient> httpClientFactory) => this.httpClientFactory = httpClientFactory;
 
@@ -82,7 +86,8 @@ public sealed class OnvifCameraConnector
         XNamespace td = DeviceNamespace;
         var response = await OnvifSoap.SendAsync(http, endpoint, DeviceNamespace, "GetServices",
             new XElement(td + "GetServices", new XElement(td + "IncludeCapability", false)), cancellationToken);
-        return response.Descendants(td + "Service").Select(service => {
+        return response.Descendants(td + "Service").Select(service =>
+        {
             var ns = service.Element(td + "Namespace")?.Value ?? throw new FormatException("Service has no namespace.");
             var address = service.Element(td + "XAddr")?.Value ?? throw new FormatException("Service has no XAddr.");
             var version = service.Element(td + "Version");
@@ -100,7 +105,8 @@ internal static class OnvifSoap
     public static async Task<XElement> SendAsync(HttpClient http, Uri endpoint, string serviceNamespace,
         string operation, XElement body, CancellationToken cancellationToken)
     {
-        var prefix = serviceNamespace switch {
+        var prefix = serviceNamespace switch
+        {
             OnvifCameraConnector.DeviceNamespace => "td",
             OnvifCameraConnector.Media1Namespace => "trt",
             OnvifCameraConnector.Media2Namespace => "tr2",
@@ -111,7 +117,8 @@ internal static class OnvifSoap
             new XAttribute(XNamespace.Xmlns + prefix, serviceNamespace),
             new XAttribute(XNamespace.Xmlns + "tt", OnvifMedia2Client.SchemaNamespace),
             new XElement(XName.Get("Body", Soap), body)));
-        using var request = new HttpRequestMessage(HttpMethod.Post, endpoint) {
+        using var request = new HttpRequestMessage(HttpMethod.Post, endpoint)
+        {
             Content = new StringContent(document.ToString(SaveOptions.DisableFormatting), Encoding.UTF8)
         };
         request.Content.Headers.ContentType = MediaTypeHeaderValue.Parse(

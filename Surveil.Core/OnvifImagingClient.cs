@@ -1,5 +1,4 @@
 using System.Globalization;
-using System.Net;
 using System.Xml.Linq;
 
 namespace Surveil.Core;
@@ -16,19 +15,15 @@ public sealed class OnvifImagingClient : IDisposable
 {
     public const string ImagingNamespace = "http://www.onvif.org/ver20/imaging/wsdl";
     private const string SchemaNamespace = "http://www.onvif.org/ver10/schema";
-    private readonly HttpClient http;
-    private readonly bool ownsHttp;
-    public Uri Endpoint { get; }
+    private readonly OnvifSoapTransport transport;
+    public Uri Endpoint => transport.Endpoint;
 
     public OnvifImagingClient(Uri endpoint, string username, string password)
     {
-        Endpoint = endpoint;
-        http = new HttpClient(new HttpClientHandler {
-            Credentials = new NetworkCredential(username, password), PreAuthenticate = true
-        });
-        ownsHttp = true;
+        transport = new OnvifSoapTransport(endpoint, username, password);
     }
-    public OnvifImagingClient(Uri endpoint, HttpClient httpClient) => (Endpoint, http) = (endpoint, httpClient);
+    public OnvifImagingClient(Uri endpoint, HttpClient httpClient) =>
+        transport = new OnvifSoapTransport(endpoint, httpClient);
 
     public async Task<OnvifImagingSettings> GetSettingsAsync(string videoSourceToken,
         CancellationToken cancellationToken = default)
@@ -64,7 +59,8 @@ public sealed class OnvifImagingClient : IDisposable
         Validate(brightness, whiteBalanceMode, crGain, cbGain, options);
         var wire = new XElement(current.WireValue);
         if (brightness.HasValue) wire.SetElementValue(S("Brightness"), F(brightness.Value));
-        if (whiteBalanceMode.HasValue || crGain.HasValue || cbGain.HasValue) {
+        if (whiteBalanceMode.HasValue || crGain.HasValue || cbGain.HasValue)
+        {
             var white = wire.Element(S("WhiteBalance")) ?? new XElement(S("WhiteBalance"));
             if (white.Parent is null) wire.Add(white);
             if (whiteBalanceMode.HasValue) white.SetElementValue(S("Mode"),
@@ -79,7 +75,7 @@ public sealed class OnvifImagingClient : IDisposable
     }
 
     private async Task<XElement> SendAsync(string operation, XElement body, CancellationToken cancellationToken) =>
-        await OnvifSoap.SendAsync(http, Endpoint, ImagingNamespace, operation, body, cancellationToken);
+        await transport.SendAsync(ImagingNamespace, operation, body, cancellationToken);
 
     private static void Validate(float? brightness, OnvifWhiteBalanceMode? mode, float? cr, float? cb,
         OnvifImagingOptions options)
@@ -110,5 +106,5 @@ public sealed class OnvifImagingClient : IDisposable
     private static string F(float value) => value.ToString(CultureInfo.InvariantCulture);
     private static XName I(string name) => XName.Get(name, ImagingNamespace);
     private static XName S(string name) => XName.Get(name, SchemaNamespace);
-    public void Dispose() { if (ownsHttp) http.Dispose(); }
+    public void Dispose() => transport.Dispose();
 }
