@@ -330,6 +330,79 @@ public sealed class CoreTests
             if (Directory.Exists(directory)) Directory.Delete(directory, true);
         }
     }
+
+    [Fact]
+    public Task RetriesKnownCamerasBeforeReportingThemMissing() => WithTempStoreAsync(async store =>
+    {
+        await store.SaveInventoryAsync(new Inventory
+        {
+            Cameras =
+            [
+                new CameraRecord { Ip = "192.168.10.2" },  // answers the sweep
+                new CameraRecord { Ip = "192.168.10.3" },  // sweep probe dropped; answers the first retry
+                new CameraRecord { Ip = "192.168.10.4" },  // really offline
+                new CameraRecord { Ip = "192.168.99.9" },  // outside this scan, so never retried
+            ],
+        });
+        var scanner = new ScriptedScanner(call => call switch
+        {
+            1 => new[] { Ip("192.168.10.2"), Ip("192.168.10.5") },
+            2 => new[] { Ip("192.168.10.3") },
+            _ => Array.Empty<IPAddress>(),
+        });
+        var service = new SurveilService(store, scanner, new FakeDiscovery([]));
+
+        var statuses = await service.ScanAsync(["192.168.10.0/29"], 80, timeout: TimeSpan.FromMilliseconds(400));
+
+        Assert.Equal(CameraPresenceStatus.Present, statuses.Single(s => s.Ip == "192.168.10.2").Presence);
+        Assert.Equal(CameraPresenceStatus.Present, statuses.Single(s => s.Ip == "192.168.10.3").Presence);
+        Assert.Equal(CameraPresenceStatus.Absent, statuses.Single(s => s.Ip == "192.168.10.4").Presence);
+        Assert.Equal(CameraPresenceStatus.New, statuses.Single(s => s.Ip == "192.168.10.5").Presence);
+        Assert.Equal(1 + SurveilService.MissingRetryAttempts, scanner.Calls.Count);
+        Assert.Equal([Ip("192.168.10.3"), Ip("192.168.10.4")], scanner.Calls[1].Addresses);
+        Assert.Equal([Ip("192.168.10.4")], scanner.Calls[2].Addresses);
+        Assert.All(scanner.Calls.Skip(1), call => Assert.Equal<TimeSpan?>(SurveilService.MissingRetryTimeout, call.Timeout));
+    });
+
+    [Fact]
+    public Task SweepsOnceWhenEveryKnownCameraAnswers() => WithTempStoreAsync(async store =>
+    {
+        await store.SaveInventoryAsync(new Inventory { Cameras = [new CameraRecord { Ip = "192.168.10.2" }] });
+        var scanner = new ScriptedScanner(_ => new[] { Ip("192.168.10.2") });
+
+        await new SurveilService(store, scanner, new FakeDiscovery([])).ScanAsync(["192.168.10.0/29"], 80);
+
+        Assert.Single(scanner.Calls);
+    });
+
+    [Fact]
+    public Task RetriesNeverUseAShorterTimeoutThanTheSweep() => WithTempStoreAsync(async store =>
+    {
+        await store.SaveInventoryAsync(new Inventory { Cameras = [new CameraRecord { Ip = "192.168.10.4" }] });
+        var scanner = new ScriptedScanner(_ => Array.Empty<IPAddress>());
+        var sweepTimeout = SurveilService.MissingRetryTimeout * 2;
+
+        await new SurveilService(store, scanner, new FakeDiscovery([]))
+            .ScanAsync(["192.168.10.0/29"], 80, timeout: sweepTimeout);
+
+        Assert.All(scanner.Calls, call => Assert.Equal<TimeSpan?>(sweepTimeout, call.Timeout));
+    });
+
+    private static IPAddress Ip(string value) => IPAddress.Parse(value);
+
+    private static async Task WithTempStoreAsync(Func<JsonStore, Task> test)
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"surveil-service-{Guid.NewGuid():N}");
+        try
+        {
+            await test(new JsonStore(directory));
+        }
+        finally
+        {
+            if (Directory.Exists(directory)) Directory.Delete(directory, true);
+        }
+    }
+
     private sealed class InlineProgress<T>(Action<T> report) : IProgress<T>
     {
         public void Report(T value) => report(value);
@@ -340,6 +413,20 @@ public sealed class CoreTests
         public Task<IReadOnlyList<IPAddress>> ScanAsync(IReadOnlyCollection<IPAddress> addresses, int port,
             int concurrency = 256, TimeSpan? timeout = null, IProgress<ScanProgress>? progress = null,
             CancellationToken cancellationToken = default) => Task.FromResult(result);
+    }
+
+    /// <summary>Answers each call (numbered from 1) from a script and records what it was asked to probe.</summary>
+    private sealed class ScriptedScanner(Func<int, IReadOnlyList<IPAddress>> respond) : ICameraScanner
+    {
+        public List<(IReadOnlyList<IPAddress> Addresses, TimeSpan? Timeout)> Calls { get; } = [];
+
+        public Task<IReadOnlyList<IPAddress>> ScanAsync(IReadOnlyCollection<IPAddress> addresses, int port,
+            int concurrency = 256, TimeSpan? timeout = null, IProgress<ScanProgress>? progress = null,
+            CancellationToken cancellationToken = default)
+        {
+            Calls.Add((addresses.ToArray(), timeout));
+            return Task.FromResult(respond(Calls.Count));
+        }
     }
 
     private sealed class FakeDiscovery(IReadOnlyList<WsDiscoveryResponder> result) : IWsDiscovery

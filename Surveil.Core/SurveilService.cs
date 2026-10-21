@@ -12,6 +12,13 @@ public sealed record CameraFeatures(
 
 public sealed class SurveilService
 {
+    /// <summary>Extra probes for a known camera that didn't answer the sweep, before it's reported missing.</summary>
+    public const int MissingRetryAttempts = 2;
+
+    /// <summary>Minimum timeout for those extra probes: long enough to outlast Windows' ~1 s wait before
+    /// it resends a dropped connection request, which a 400 ms sweep probe never reaches.</summary>
+    public static readonly TimeSpan MissingRetryTimeout = TimeSpan.FromMilliseconds(1500);
+
     private readonly IConfigurationRepository configurations;
     private readonly IInventoryRepository inventory;
     private readonly ICameraScanner scanner;
@@ -55,16 +62,46 @@ public sealed class SurveilService
         var addresses = NetworkRanges.ExpandPrivate(targets);
         var scanned = addresses.ToHashSet();
         var foundAddresses = await scanner.ScanAsync(addresses, port, concurrency, timeout, progress, cancellationToken);
+        var previous = await this.inventory.LoadInventoryAsync(cancellationToken);
+        foundAddresses = await ConfirmMissingAsync(previous, scanned, foundAddresses, port, concurrency, timeout,
+            cancellationToken);
         var now = (ulong)DateTimeOffset.UtcNow.ToUnixTimeSeconds();
         var found = foundAddresses.Select(address =>
         {
             var location = NetworkRanges.Locate(config, address);
             return new FoundCamera { Ip = address.ToString(), Site = location?.Site ?? "", Area = location?.Area ?? "" };
         });
-        var previous = await this.inventory.LoadInventoryAsync(cancellationToken);
         var (inventory, statuses) = InventoryComparer.Diff(previous, found, scanned, now);
         await this.inventory.SaveInventoryAsync(inventory, cancellationToken);
         return statuses;
+    }
+
+    /// <summary>Re-probe the known cameras in scope that didn't answer the sweep, with a longer timeout,
+    /// so one dropped connection attempt doesn't report an online camera missing. Only those few
+    /// addresses are retried — never the empty ones — so a full sweep takes no longer.</summary>
+    private async Task<IReadOnlyList<IPAddress>> ConfirmMissingAsync(Inventory previous, ISet<IPAddress> scanned,
+        IReadOnlyList<IPAddress> found, int port, int concurrency, TimeSpan? timeout,
+        CancellationToken cancellationToken)
+    {
+        var responding = found.ToHashSet();
+        var unconfirmed = previous.Cameras
+            .Select(camera => IPAddress.TryParse(camera.Ip, out var address) ? address : null)
+            .OfType<IPAddress>()
+            .Where(address => scanned.Contains(address) && !responding.Contains(address))
+            .Distinct()
+            .ToList();
+        if (unconfirmed.Count == 0) return found;
+
+        // Never retry with less patience than the sweep itself was given.
+        var retryTimeout = timeout is { } configured && configured > MissingRetryTimeout ? configured : MissingRetryTimeout;
+        for (var attempt = 0; attempt < MissingRetryAttempts && unconfirmed.Count > 0; attempt++)
+        {
+            var answered = (await scanner.ScanAsync(unconfirmed, port, concurrency, retryTimeout, null,
+                cancellationToken)).ToHashSet();
+            responding.UnionWith(answered);
+            unconfirmed.RemoveAll(answered.Contains);
+        }
+        return responding.OrderBy(IpAddress.ToUInt32).ToArray();
     }
 
     public async Task<DiscoveryResult> DiscoverAsync(
