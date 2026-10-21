@@ -39,6 +39,29 @@ public static class CameraTreeProjector
         }
     }
 
+    /// <summary>Replace each scanned range's cameras with the scan's statuses. Known cameras that
+    /// didn't answer stay in the tree so they show as missing, but count separately from the ones
+    /// that responded.</summary>
+    public static ScanTally ReplaceScanResults(IReadOnlyList<NetworkRangeItem> scannedRanges,
+        IEnumerable<CameraStatus> statuses, Action selectionChanged)
+    {
+        foreach (var range in scannedRanges) range.Cameras.Clear();
+        var index = new IpRangeMap<NetworkRangeItem>(scannedRanges.Select(range => (range.Cidr, range)));
+        int responding = 0, added = 0, missing = 0;
+        foreach (var status in statuses)
+        {
+            var range = IPAddress.TryParse(status.Ip, out var address) ? index.Find(address) : null;
+            if (range is null || Add(range.Cameras, status, null, selectionChanged) is null) continue;
+            if (status.Presence == CameraPresenceStatus.Absent) missing++;
+            else
+            {
+                responding++;
+                if (status.Presence == CameraPresenceStatus.New) added++;
+            }
+        }
+        return new ScanTally(responding, added, missing);
+    }
+
     public static CameraItem? Add(ObservableCollection<CameraItem> cameras, CameraStatus camera, Uri? endpoint,
         Action selectionChanged)
     {
@@ -48,3 +71,7 @@ public static class CameraTreeProjector
         return item;
     }
 }
+
+/// <summary>What a scan placed in the tree: cameras that responded (and how many of those are new),
+/// and known cameras in the scanned ranges that didn't.</summary>
+public readonly record struct ScanTally(int Responding, int New, int Missing);

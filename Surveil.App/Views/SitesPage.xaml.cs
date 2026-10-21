@@ -57,27 +57,33 @@ public sealed partial class SitesPage : Page
     }
 
     /// <summary>Discover runs WS-Discovery, then reports what it found and offers to port-scan the
-    /// checked ranges for cameras that didn't announce themselves.</summary>
+    /// checked ranges for cameras that didn't announce themselves. The offer stands even when
+    /// discovery fails, since port-scanning doesn't depend on multicast reaching the cameras.</summary>
     private async void OnDiscoverClick(object sender, RoutedEventArgs e)
     {
         var summary = await Vm.DiscoverAsync();
-        if (summary is null) return;  // cancelled or failed — the status bar already explains
+        if (summary is null) return;  // cancelled — the status bar already says so
 
-        var found = summary.Value.Found;
-        var unmapped = summary.Value.Unmapped;
+        var (found, unmapped, error) = summary.Value;
         var checkedRanges = Vm.CheckedRangeCount;
+        var ranges = $"{checkedRanges} checked range{(checkedRanges == 1 ? "" : "s")}";
 
-        var message = found > 0
-            ? $"Found {found} camera{(found == 1 ? "" : "s")} ({unmapped} unmapped)."
-            : "No cameras announced themselves.";
-        message += checkedRanges > 0
-            ? $"\n\nAlso port-scan the {checkedRanges} checked range{(checkedRanges == 1 ? "" : "s")} for cameras that didn't announce themselves?"
-            : "\n\nTick one or more ranges first to also port-scan them for cameras that didn't announce themselves.";
+        string message;
+        if (error is not null)
+            message = $"Discovery failed: {error}" + (checkedRanges > 0
+                ? $"\n\nPort-scan the {ranges} instead?"
+                : "\n\nTick one or more ranges to port-scan them instead.");
+        else
+            message = (found > 0
+                ? $"Found {found} camera{(found == 1 ? "" : "s")} ({unmapped} unmapped)."
+                : "No cameras announced themselves.") + (checkedRanges > 0
+                ? $"\n\nAlso port-scan the {ranges} for cameras that didn't announce themselves?"
+                : "\n\nTick one or more ranges first to also port-scan them for cameras that didn't announce themselves.");
 
         var dialog = new ContentDialog
         {
             XamlRoot = XamlRoot,
-            Title = "Discovery complete",
+            Title = error is null ? "Discovery complete" : "Discovery failed",
             Content = new TextBlock { Text = message, TextWrapping = TextWrapping.Wrap },
             PrimaryButtonText = "Scan checked ranges",
             CloseButtonText = "Not now",

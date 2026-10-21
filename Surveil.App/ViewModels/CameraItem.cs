@@ -48,7 +48,10 @@ public sealed partial class CameraItem : ObservableObject
     }
 
     public string Ip => Camera.Ip;
-    public string StatusText => Camera.Status;
+    public string StatusText => IsMissing ? "missing" : Camera.Status;
+
+    /// <summary>A known camera that didn't answer the latest scan of its range.</summary>
+    public bool IsMissing => Camera.Presence == CameraPresenceStatus.Absent;
 
     // --- Facet accessors (null / empty until identified) ---
 

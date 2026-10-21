@@ -271,6 +271,7 @@ public sealed class CoreTests
                 [IPAddress.Loopback, IPAddress.Parse("127.0.0.2")], port, 2,
                 TimeSpan.FromMilliseconds(300), progress);
             Assert.Contains(IPAddress.Loopback, found);
+            Assert.Equal(new ScanProgress(0, 2, 0), updates[0]);  // total reported before any probe
             Assert.Equal(2, updates[^1].Scanned);
             Assert.Equal(1, updates[^1].Found);
         }

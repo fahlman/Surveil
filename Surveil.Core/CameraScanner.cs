@@ -28,6 +28,8 @@ public sealed class CameraScanner : ICameraScanner
         var sync = new object();
         var scannedCount = 0;
         using var gate = new SemaphoreSlim(Math.Max(1, concurrency));
+        // Report the total up front so a determinate progress bar can size itself before any probe returns.
+        progress?.Report(new ScanProgress(0, addresses.Count, 0));
 
         var probes = addresses.Select(async address =>
         {

@@ -191,19 +191,14 @@ public sealed partial class SitesViewModel : ObservableObject, IDisposable
         if (valid.Count == 0)
         {
             HasError = true;
-            StatusMessage = "None of the checked CIDRs are valid private ranges.";
+            StatusMessage = "None of the checked CIDRs are valid.";
             return;
         }
-
-        foreach (var range in valid) range.Cameras.Clear();
-        var rangeIndex = new IpRangeMap<NetworkRangeItem>(valid.Select(range => (range.Cidr, range)));
-        var targets = NetworkRanges.ExpandPrivate(valid.Select(range => range.Cidr))
-            .Select(address => address.ToString()).ToArray();
 
         IsScanning = true;
         HasError = false;
         ScanProgressValue = 0;
-        ScanProgressMaximum = Math.Max(1, targets.Length);
+        ScanProgressMaximum = 1;  // the scanner reports the real total before its first probe
         StatusMessage = "Scanning…";
         busyCts = new CancellationTokenSource();
         var settings = session.Settings;
@@ -217,22 +212,19 @@ public sealed partial class SitesViewModel : ObservableObject, IDisposable
 
         try
         {
-            var statuses = await session.Service.ScanAsync(targets, settings.DefaultPort,
+            // The service expands the CIDRs and enforces the private-only and size limits, so those
+            // errors land in the status bar below rather than escaping to the global handler.
+            var statuses = await session.Service.ScanAsync(valid.Select(range => range.Cidr), settings.DefaultPort,
                 settings.DefaultConcurrency, TimeSpan.FromMilliseconds(settings.DefaultTimeoutMs),
                 progress, busyCts.Token);
 
-            var found = 0;
-            foreach (var camera in statuses.Where(status => status.Presence != CameraPresenceStatus.Offline))
-            {
-                var range = IPAddress.TryParse(camera.Ip, out var address) ? rangeIndex.Find(address) : null;
-                if (range is null) continue;
-                CameraTreeProjector.Add(range.Cameras, camera, null, OnConfigurationSelectionChanged);
-                found++;
-            }
-            OnConfigurationSelectionChanged();  // scanned ranges were cleared — drop any stale selections
+            // Only now replace the scanned ranges' cameras, so a failed or cancelled scan leaves the tree intact.
+            var tally = CameraTreeProjector.ReplaceScanResults(valid, statuses, OnConfigurationSelectionChanged);
+            OnConfigurationSelectionChanged();  // scanned ranges were rebuilt — drop any stale selections
             RebuildFacets();
             StartIdentification();
-            StatusMessage = $"Found {found} camera(s) across {valid.Count} CIDR(s).";
+            StatusMessage = $"Found {tally.Responding} camera(s) across {valid.Count} CIDR(s) — " +
+                $"{tally.New} new, {tally.Missing} missing.";
         }
         catch (OperationCanceledException)
         {
@@ -254,7 +246,8 @@ public sealed partial class SitesViewModel : ObservableObject, IDisposable
 
     /// <summary>Discover cameras on the local network (WS-Discovery); each lands under its CIDR, or
     /// in the Unmapped group if it falls outside every mapped range. Returns a summary of what was
-    /// found, or null if the run was cancelled or failed.</summary>
+    /// found, or null if the run was cancelled. A failed run returns a summary carrying the error, so
+    /// the page can still offer the port-scan — the fallback that matters most when discovery fails.</summary>
     public async Task<DiscoverySummary?> DiscoverAsync()
     {
         if (IsBusy) return null;
@@ -309,7 +302,7 @@ public sealed partial class SitesViewModel : ObservableObject, IDisposable
             HasError = true;
             StatusMessage = ex.Message;
             AppLog.Write(ex);
-            return null;
+            return new DiscoverySummary(0, 0, ex.Message);
         }
         finally
         {
@@ -379,7 +372,8 @@ public sealed partial class SitesViewModel : ObservableObject, IDisposable
 
     private void StartIdentification()
     {
-        var cameras = AllCameras().Where(camera =>
+        // Missing cameras didn't answer the scan; signing in would only wait out the HTTP timeout.
+        var cameras = AllCameras().Where(camera => !camera.IsMissing &&
             camera.LoginState is not CameraLoginState.Success and not CameraLoginState.InProgress).ToList();
         if (cameras.Count == 0) return;
         identificationCts?.Cancel();
@@ -418,5 +412,6 @@ public sealed partial class SitesViewModel : ObservableObject, IDisposable
     }
 }
 
-/// <summary>What a discovery run found, for the prompt that offers a follow-up scan.</summary>
-public readonly record struct DiscoverySummary(int Found, int Unmapped);
+/// <summary>What a discovery run found, for the prompt that offers a follow-up scan. <see cref="Error"/>
+/// is set when discovery failed outright.</summary>
+public readonly record struct DiscoverySummary(int Found, int Unmapped, string? Error = null);
