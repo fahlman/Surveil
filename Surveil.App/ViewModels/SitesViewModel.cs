@@ -195,6 +195,15 @@ public sealed partial class SitesViewModel : ObservableObject, IDisposable
             return;
         }
 
+        // Cameras are told apart by manufacturer + serial number, not by IP (which changes), and
+        // reading those takes an ONVIF sign-in.
+        if (string.IsNullOrWhiteSpace(session.Username))
+        {
+            HasError = true;
+            StatusMessage = "Enter the ONVIF username in Settings (needed to identify cameras).";
+            return;
+        }
+
         IsScanning = true;
         HasError = false;
         ScanProgressValue = 0;
@@ -207,7 +216,9 @@ public sealed partial class SitesViewModel : ObservableObject, IDisposable
         {
             ScanProgressMaximum = Math.Max(1, p.Total);
             ScanProgressValue = p.Scanned;
-            StatusMessage = $"Scanned {p.Scanned}/{p.Total} — {p.Found} responding";
+            StatusMessage = p.Phase == ScanPhase.Identifying
+                ? $"Identifying {p.Scanned}/{p.Total} — {p.Found} identified"
+                : $"Scanned {p.Scanned}/{p.Total} — {p.Found} responding";
         });
 
         try
@@ -215,8 +226,8 @@ public sealed partial class SitesViewModel : ObservableObject, IDisposable
             // The service expands the CIDRs and enforces the private-only and size limits, so those
             // errors land in the status bar below rather than escaping to the global handler.
             var statuses = await session.Service.ScanAsync(valid.Select(range => range.Cidr), settings.DefaultPort,
-                settings.DefaultConcurrency, TimeSpan.FromMilliseconds(settings.DefaultTimeoutMs),
-                progress, busyCts.Token);
+                new OnvifCredentials(session.Username, session.Password), settings.DefaultConcurrency,
+                TimeSpan.FromMilliseconds(settings.DefaultTimeoutMs), progress, busyCts.Token);
 
             // Only now replace the scanned ranges' cameras, so a failed or cancelled scan leaves the tree intact.
             var tally = CameraTreeProjector.ReplaceScanResults(valid, statuses, OnConfigurationSelectionChanged);
@@ -224,7 +235,8 @@ public sealed partial class SitesViewModel : ObservableObject, IDisposable
             RebuildFacets();
             StartIdentification();
             StatusMessage = $"Found {tally.Responding} camera(s) across {valid.Count} CIDR(s) — " +
-                $"{tally.New} new, {tally.Missing} missing.";
+                $"{tally.New} new, {tally.Moved} moved, {tally.Missing} missing" +
+                (tally.Unidentified > 0 ? $", {tally.Unidentified} couldn't be identified." : ".");
         }
         catch (OperationCanceledException)
         {
@@ -372,8 +384,9 @@ public sealed partial class SitesViewModel : ObservableObject, IDisposable
 
     private void StartIdentification()
     {
-        // Missing cameras didn't answer the scan; signing in would only wait out the HTTP timeout.
-        var cameras = AllCameras().Where(camera => !camera.IsMissing &&
+        // Skip devices the scan already found missing or couldn't sign into; trying again would only
+        // repeat that (or wait out the HTTP timeout).
+        var cameras = AllCameras().Where(camera => camera.ShouldIdentify &&
             camera.LoginState is not CameraLoginState.Success and not CameraLoginState.InProgress).ToList();
         if (cameras.Count == 0) return;
         identificationCts?.Cancel();

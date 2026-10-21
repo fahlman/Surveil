@@ -317,8 +317,9 @@ public sealed class CoreTests
             }]
             });
             var service = new SurveilService(store, new FakeScanner([IPAddress.Parse("192.168.10.1")]),
-                new FakeDiscovery([new WsDiscoveryResponder(IPAddress.Parse("192.168.10.1"), "http://camera/onvif")]));
-            var statuses = await service.ScanAsync(["192.168.10.0/30"], 80);
+                new FakeDiscovery([new WsDiscoveryResponder(IPAddress.Parse("192.168.10.1"), "http://camera/onvif")]),
+                new FakeIdentifier(new() { ["192.168.10.1"] = "S1" }));
+            var statuses = await service.ScanAsync(["192.168.10.0/30"], 80, Credentials);
             Assert.Equal("new", statuses.Single().Status);
             Assert.Equal("Hall", statuses.Single().Site);
             var discovered = await service.DiscoverAsync();
@@ -338,10 +339,10 @@ public sealed class CoreTests
         {
             Cameras =
             [
-                new CameraRecord { Ip = "192.168.10.2" },  // answers the sweep
-                new CameraRecord { Ip = "192.168.10.3" },  // sweep probe dropped; answers the first retry
-                new CameraRecord { Ip = "192.168.10.4" },  // really offline
-                new CameraRecord { Ip = "192.168.99.9" },  // outside this scan, so never retried
+                Known("192.168.10.2", "S2"),  // answers the sweep
+                Known("192.168.10.3", "S3"),  // sweep probe dropped; answers the first retry
+                Known("192.168.10.4", "S4"),  // really offline
+                Known("192.168.99.9", "S9"),  // outside this scan, so never retried
             ],
         });
         var scanner = new ScriptedScanner(call => call switch
@@ -350,9 +351,14 @@ public sealed class CoreTests
             2 => new[] { Ip("192.168.10.3") },
             _ => Array.Empty<IPAddress>(),
         });
-        var service = new SurveilService(store, scanner, new FakeDiscovery([]));
+        var identifier = new FakeIdentifier(new()
+        {
+            ["192.168.10.2"] = "S2", ["192.168.10.3"] = "S3", ["192.168.10.5"] = "S5",
+        });
+        var service = new SurveilService(store, scanner, new FakeDiscovery([]), identifier);
 
-        var statuses = await service.ScanAsync(["192.168.10.0/29"], 80, timeout: TimeSpan.FromMilliseconds(400));
+        var statuses = await service.ScanAsync(["192.168.10.0/29"], 80, Credentials,
+            timeout: TimeSpan.FromMilliseconds(400));
 
         Assert.Equal(CameraPresenceStatus.Present, statuses.Single(s => s.Ip == "192.168.10.2").Presence);
         Assert.Equal(CameraPresenceStatus.Present, statuses.Single(s => s.Ip == "192.168.10.3").Presence);
@@ -367,10 +373,11 @@ public sealed class CoreTests
     [Fact]
     public Task SweepsOnceWhenEveryKnownCameraAnswers() => WithTempStoreAsync(async store =>
     {
-        await store.SaveInventoryAsync(new Inventory { Cameras = [new CameraRecord { Ip = "192.168.10.2" }] });
+        await store.SaveInventoryAsync(new Inventory { Cameras = [Known("192.168.10.2", "S2")] });
         var scanner = new ScriptedScanner(_ => new[] { Ip("192.168.10.2") });
 
-        await new SurveilService(store, scanner, new FakeDiscovery([])).ScanAsync(["192.168.10.0/29"], 80);
+        await new SurveilService(store, scanner, new FakeDiscovery([]), new FakeIdentifier(new() { ["192.168.10.2"] = "S2" }))
+            .ScanAsync(["192.168.10.0/29"], 80, Credentials);
 
         Assert.Single(scanner.Calls);
     });
@@ -378,17 +385,48 @@ public sealed class CoreTests
     [Fact]
     public Task RetriesNeverUseAShorterTimeoutThanTheSweep() => WithTempStoreAsync(async store =>
     {
-        await store.SaveInventoryAsync(new Inventory { Cameras = [new CameraRecord { Ip = "192.168.10.4" }] });
+        await store.SaveInventoryAsync(new Inventory { Cameras = [Known("192.168.10.4", "S4")] });
         var scanner = new ScriptedScanner(_ => Array.Empty<IPAddress>());
         var sweepTimeout = SurveilService.MissingRetryTimeout * 2;
 
-        await new SurveilService(store, scanner, new FakeDiscovery([]))
-            .ScanAsync(["192.168.10.0/29"], 80, timeout: sweepTimeout);
+        await new SurveilService(store, scanner, new FakeDiscovery([]), new FakeIdentifier(new()))
+            .ScanAsync(["192.168.10.0/29"], 80, Credentials, timeout: sweepTimeout);
 
         Assert.All(scanner.Calls, call => Assert.Equal<TimeSpan?>(sweepTimeout, call.Timeout));
     });
 
+    [Fact]
+    public Task ScanTracksCamerasBySerialAndReportsDevicesItCannotIdentify() => WithTempStoreAsync(async store =>
+    {
+        await store.SaveInventoryAsync(new Inventory { Cameras = [Known("192.168.10.2", "S1")] });
+        var scanner = new ScriptedScanner(call => call == 1
+            ? new[] { Ip("192.168.10.3"), Ip("192.168.10.4") }
+            : Array.Empty<IPAddress>());
+        var identifier = new FakeIdentifier(new() { ["192.168.10.3"] = "S1" });  // .4 fails sign-in
+        var updates = new List<ScanProgress>();
+
+        var statuses = await new SurveilService(store, scanner, new FakeDiscovery([]), identifier)
+            .ScanAsync(["192.168.10.0/29"], 80, Credentials, progress: new InlineProgress<ScanProgress>(updates.Add));
+
+        var moved = statuses.Single(s => s.Ip == "192.168.10.3");
+        Assert.Equal((CameraPresenceStatus.Moved, "192.168.10.2"), (moved.Presence, moved.PreviousIp));
+        var stranger = statuses.Single(s => s.Ip == "192.168.10.4");
+        Assert.Equal(CameraPresenceStatus.Unidentified, stranger.Presence);
+        Assert.StartsWith("sign-in failed", stranger.Problem);
+        Assert.All(identifier.Credentials, used => Assert.Equal(Credentials, used));
+        // Tracked by serial at its new address; the device that couldn't be identified isn't saved.
+        Assert.Equal("192.168.10.3", Assert.Single((await store.LoadInventoryAsync()).Cameras).Ip);
+        Assert.Equal(new ScanProgress(2, 2, 1, ScanPhase.Identifying), updates[^1]);
+    });
+
+    private static readonly OnvifCredentials Credentials = new("admin", "secret");
+
     private static IPAddress Ip(string value) => IPAddress.Parse(value);
+
+    private static CameraRecord Known(string ip, string serial) => new()
+    {
+        Ip = ip, Manufacturer = "Acme", SerialNumber = serial, FirstSeen = 100, LastSeen = 100,
+    };
 
     private static async Task WithTempStoreAsync(Func<JsonStore, Task> test)
     {
@@ -413,6 +451,22 @@ public sealed class CoreTests
         public Task<IReadOnlyList<IPAddress>> ScanAsync(IReadOnlyCollection<IPAddress> addresses, int port,
             int concurrency = 256, TimeSpan? timeout = null, IProgress<ScanProgress>? progress = null,
             CancellationToken cancellationToken = default) => Task.FromResult(result);
+    }
+
+    /// <summary>Identifies each mapped address as an Acme camera with that serial; any other address
+    /// fails sign-in. Records the credentials it was given.</summary>
+    private sealed class FakeIdentifier(Dictionary<string, string> serials) : ICameraIdentifier
+    {
+        public List<OnvifCredentials> Credentials { get; } = [];
+
+        public Task<CameraIdentity?> IdentifyAsync(IPAddress address, OnvifCredentials credentials,
+            CancellationToken cancellationToken)
+        {
+            lock (Credentials) Credentials.Add(credentials);
+            return serials.TryGetValue(address.ToString(), out var serial)
+                ? Task.FromResult<CameraIdentity?>(new CameraIdentity("Acme", "Cam", serial))
+                : throw new OnvifException(HttpStatusCode.Unauthorized, "denied");
+        }
     }
 
     /// <summary>Answers each call (numbered from 1) from a script and records what it was asked to probe.</summary>

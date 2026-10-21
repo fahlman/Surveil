@@ -21,7 +21,9 @@ public sealed class PersistenceTests
             await store.SaveConfigAsync(config);
             Assert.Equal("Example", (await store.LoadConfigAsync()).Sites[0].Name);
             await store.SaveInventoryAsync(new Inventory { LastScan = 123, Cameras = [Record("192.168.10.5")] });
-            Assert.Equal((ulong)123, (await store.LoadInventoryAsync()).LastScan);
+            var inventory = await store.LoadInventoryAsync();
+            Assert.Equal((ulong)123, inventory.LastScan);
+            Assert.Equal("ACCC8E000001", inventory.Cameras.Single().SerialNumber);
             Assert.DoesNotContain(Directory.EnumerateFiles(directory).Select(Path.GetFileName),
                 name => name?.EndsWith(".tmp", StringComparison.OrdinalIgnoreCase) == true);
         }
@@ -78,6 +80,8 @@ public sealed class PersistenceTests
     private static CameraRecord Record(string ip) => new()
     {
         Ip = ip,
+        Manufacturer = "Acme",
+        SerialNumber = "ACCC8E000001",
         Site = "Hall",
         Area = "First Floor",
         FirstSeen = 100,

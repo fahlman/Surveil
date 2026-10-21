@@ -24,7 +24,8 @@ Surveil is a native **C# / .NET** application for Windows.
 - Private IPv4 CIDR parsing and expansion, with a 65,534-address scan safety limit
 - Duplicate and overlapping range validation
 - IP-to-site/area lookup
-- New, present, absent, and out-of-scope inventory comparison
+- Inventory comparison by camera identity (manufacturer + serial, read over ONVIF), not IP:
+  new, present, moved, missing, and unidentified
 - Concurrent TCP scanning with bounded concurrency, timeout, cancellation, and progress
 - Atomic JSON persistence in `%LOCALAPPDATA%\Surveil`
 - ONVIF WS-Discovery probing and response parsing
@@ -45,8 +46,8 @@ Surveil stores two JSON files in `%LOCALAPPDATA%\Surveil`:
 
 - `sites.json` — the site map (name and named private network ranges),
   editable in the app.
-- `cameras.json` — the camera inventory with first/last-seen timestamps, updated
-  after every scan.
+- `cameras.json` — the camera inventory, keyed by manufacturer + serial number, with
+  each camera's last-seen address and first/last-seen timestamps; updated after every scan.
 
 ## Network configuration
 

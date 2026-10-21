@@ -28,6 +28,9 @@ public static class CameraTreeProjector
             var status = new CameraStatus
             {
                 Ip = record.Ip,
+                Manufacturer = record.Manufacturer,
+                Model = record.Model,
+                SerialNumber = record.SerialNumber,
                 Site = record.Site,
                 Area = record.Area,
                 FirstSeen = record.FirstSeen,
@@ -39,27 +42,31 @@ public static class CameraTreeProjector
         }
     }
 
-    /// <summary>Replace each scanned range's cameras with the scan's statuses. Known cameras that
-    /// didn't answer stay in the tree so they show as missing, but count separately from the ones
-    /// that responded.</summary>
+    /// <summary>Replace each scanned range's cameras with the scan's statuses. Missing cameras and
+    /// devices that couldn't be identified stay in the tree so the reason shows, but count
+    /// separately from the identified cameras that responded.</summary>
     public static ScanTally ReplaceScanResults(IReadOnlyList<NetworkRangeItem> scannedRanges,
         IEnumerable<CameraStatus> statuses, Action selectionChanged)
     {
         foreach (var range in scannedRanges) range.Cameras.Clear();
         var index = new IpRangeMap<NetworkRangeItem>(scannedRanges.Select(range => (range.Cidr, range)));
-        int responding = 0, added = 0, missing = 0;
+        int responding = 0, added = 0, moved = 0, missing = 0, unidentified = 0;
         foreach (var status in statuses)
         {
             var range = IPAddress.TryParse(status.Ip, out var address) ? index.Find(address) : null;
             if (range is null || Add(range.Cameras, status, null, selectionChanged) is null) continue;
-            if (status.Presence == CameraPresenceStatus.Absent) missing++;
-            else
+            switch (status.Presence)
             {
-                responding++;
-                if (status.Presence == CameraPresenceStatus.New) added++;
+                case CameraPresenceStatus.Absent: missing++; break;
+                case CameraPresenceStatus.Unverified or CameraPresenceStatus.Unidentified: unidentified++; break;
+                default:
+                    responding++;
+                    if (status.Presence == CameraPresenceStatus.New) added++;
+                    if (status.Presence == CameraPresenceStatus.Moved) moved++;
+                    break;
             }
         }
-        return new ScanTally(responding, added, missing);
+        return new ScanTally(responding, added, moved, missing, unidentified);
     }
 
     public static CameraItem? Add(ObservableCollection<CameraItem> cameras, CameraStatus camera, Uri? endpoint,
@@ -72,6 +79,6 @@ public static class CameraTreeProjector
     }
 }
 
-/// <summary>What a scan placed in the tree: cameras that responded (and how many of those are new),
-/// and known cameras in the scanned ranges that didn't.</summary>
-public readonly record struct ScanTally(int Responding, int New, int Missing);
+/// <summary>What a scan placed in the tree: identified cameras that responded (and how many of those
+/// are new or moved), known cameras that didn't, and devices that couldn't be identified.</summary>
+public readonly record struct ScanTally(int Responding, int New, int Moved, int Missing, int Unidentified);

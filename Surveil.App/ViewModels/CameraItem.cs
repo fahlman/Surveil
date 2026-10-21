@@ -48,10 +48,22 @@ public sealed partial class CameraItem : ObservableObject
     }
 
     public string Ip => Camera.Ip;
-    public string StatusText => IsMissing ? "missing" : Camera.Status;
+    public string StatusText => Camera.Presence switch
+    {
+        CameraPresenceStatus.Absent => "missing",
+        CameraPresenceStatus.Moved => $"moved from {Camera.PreviousIp}",
+        CameraPresenceStatus.Unverified => $"unverified: {Camera.Problem}",
+        CameraPresenceStatus.Unidentified => $"not identified: {Camera.Problem}",
+        _ => Camera.Status,
+    };
 
     /// <summary>A known camera that didn't answer the latest scan of its range.</summary>
     public bool IsMissing => Camera.Presence == CameraPresenceStatus.Absent;
+
+    /// <summary>False when the latest scan found this device missing or couldn't identify it, so
+    /// signing in again would only repeat that.</summary>
+    public bool ShouldIdentify => Camera.Presence is not (CameraPresenceStatus.Absent
+        or CameraPresenceStatus.Unverified or CameraPresenceStatus.Unidentified);
 
     // --- Facet accessors (null / empty until identified) ---
 

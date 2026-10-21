@@ -9,7 +9,7 @@ Left-nav pages, plus **Provision** as a toggle-able right-side drawer and **Sett
 
 | Page/panel | What it does                                                                 | Core API |
 |------------|------------------------------------------------------------------------------|----------|
-| **Sites** | The whole app: a tree of site → CIDR → cameras that is both the map **and** the inventory. Check CIDRs and **Scan** them (cameras nest under their CIDR), or **Discover** the network (strays land in an **Unmapped** group). Loads the saved inventory on startup. Save / import / export JSON. | `SurveilService.ScanAsync` · `DiscoverAsync` · `JsonStore.LoadInventoryAsync` · config APIs |
+| **Sites** | The whole app: a tree of site → CIDR → cameras that is both the map **and** the inventory. Check CIDRs and **Scan** them (cameras nest under their CIDR; each is identified by manufacturer + serial, so scanning needs the ONVIF credentials), or **Discover** the network (strays land in an **Unmapped** group). Loads the saved inventory on startup. Save / import / export JSON. | `SurveilService.ScanAsync` · `DiscoverAsync` · `JsonStore.LoadInventoryAsync` · config APIs |
 | **Provision** *(docked right panel)* | Derive name/hostname from the map, set NTP, maximize video (codec pref, resolution-first); **dry-run** preview; truthful per-camera results | `BulkProvisioningService.{Plan,ProvisionAsync}` |
 | **Settings**  | Persisted defaults (username, port/timeout/concurrency, codecs, dry-run). Never stores the password. | `SettingsStore` → settings.json |
 

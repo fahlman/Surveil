@@ -19,27 +19,34 @@ public sealed class SurveilService
     /// it resends a dropped connection request, which a 400 ms sweep probe never reaches.</summary>
     public static readonly TimeSpan MissingRetryTimeout = TimeSpan.FromMilliseconds(1500);
 
+    /// <summary>How many devices a scan signs into at once to read their identity.</summary>
+    public const int IdentifyConcurrency = 16;
+
     private readonly IConfigurationRepository configurations;
     private readonly IInventoryRepository inventory;
     private readonly ICameraScanner scanner;
     private readonly IWsDiscovery discovery;
+    private readonly ICameraIdentifier identifier;
 
-    public SurveilService(JsonStore? store = null, ICameraScanner? scanner = null, IWsDiscovery? discovery = null)
+    public SurveilService(JsonStore? store = null, ICameraScanner? scanner = null, IWsDiscovery? discovery = null,
+        ICameraIdentifier? identifier = null)
     {
         var json = store ?? new JsonStore();
         configurations = json;
         inventory = json;
         this.scanner = scanner ?? new CameraScanner();
         this.discovery = discovery ?? new WsDiscovery();
+        this.identifier = identifier ?? new OnvifCameraIdentifier();
     }
 
     public SurveilService(IConfigurationRepository configurations, IInventoryRepository inventory,
-        ICameraScanner? scanner = null, IWsDiscovery? discovery = null)
+        ICameraScanner? scanner = null, IWsDiscovery? discovery = null, ICameraIdentifier? identifier = null)
     {
         this.configurations = configurations;
         this.inventory = inventory;
         this.scanner = scanner ?? new CameraScanner();
         this.discovery = discovery ?? new WsDiscovery();
+        this.identifier = identifier ?? new OnvifCameraIdentifier();
     }
 
     public Task<SurveilConfig> GetConfigAsync(CancellationToken cancellationToken = default) =>
@@ -54,9 +61,12 @@ public sealed class SurveilService
     public Task ExportConfigAsync(string path, CancellationToken cancellationToken = default) =>
         configurations.ExportConfigAsync(path, cancellationToken);
 
+    /// <summary>Probe the targets, sign into every device that answers to read its identity, and
+    /// compare with the inventory by identity — so a camera that changed address is reported moved,
+    /// not missing + new.</summary>
     public async Task<IReadOnlyList<CameraStatus>> ScanAsync(
-        IEnumerable<string> targets, int port, int concurrency = 256, TimeSpan? timeout = null,
-        IProgress<ScanProgress>? progress = null, CancellationToken cancellationToken = default)
+        IEnumerable<string> targets, int port, OnvifCredentials credentials, int concurrency = 256,
+        TimeSpan? timeout = null, IProgress<ScanProgress>? progress = null, CancellationToken cancellationToken = default)
     {
         var config = await configurations.LoadConfigAsync(cancellationToken);
         var addresses = NetworkRanges.ExpandPrivate(targets);
@@ -65,16 +75,63 @@ public sealed class SurveilService
         var previous = await this.inventory.LoadInventoryAsync(cancellationToken);
         foundAddresses = await ConfirmMissingAsync(previous, scanned, foundAddresses, port, concurrency, timeout,
             cancellationToken);
+        var found = await IdentifyAsync(foundAddresses, credentials, config, progress, cancellationToken);
         var now = (ulong)DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-        var found = foundAddresses.Select(address =>
-        {
-            var location = NetworkRanges.Locate(config, address);
-            return new FoundCamera { Ip = address.ToString(), Site = location?.Site ?? "", Area = location?.Area ?? "" };
-        });
         var (inventory, statuses) = InventoryComparer.Diff(previous, found, scanned, now);
         await this.inventory.SaveInventoryAsync(inventory, cancellationToken);
         return statuses;
     }
+
+    /// <summary>Read each responding device's identity. A device that can't be identified is still
+    /// returned, with the reason, so the scan can report it without tracking it.</summary>
+    private async Task<IReadOnlyList<FoundCamera>> IdentifyAsync(IReadOnlyList<IPAddress> addresses,
+        OnvifCredentials credentials, SurveilConfig config, IProgress<ScanProgress>? progress,
+        CancellationToken cancellationToken)
+    {
+        progress?.Report(new ScanProgress(0, addresses.Count, 0, ScanPhase.Identifying));
+        using var gate = new SemaphoreSlim(IdentifyConcurrency);
+        var sync = new object();
+        int done = 0, identified = 0;
+        return await Task.WhenAll(addresses.Select(async address =>
+        {
+            var location = NetworkRanges.Locate(config, address);
+            var camera = new FoundCamera
+            {
+                Ip = address.ToString(), Site = location?.Site ?? "", Area = location?.Area ?? "",
+            };
+            await gate.WaitAsync(cancellationToken);
+            try
+            {
+                camera.Identity = await identifier.IdentifyAsync(address, credentials, cancellationToken);
+                if (camera.Identity is null) camera.Problem = "reports no serial number";
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception error)
+            {
+                camera.Problem = DescribeIdentificationFailure(error);
+            }
+            finally
+            {
+                gate.Release();
+            }
+            ScanProgress update;
+            lock (sync) update = new(++done, addresses.Count, camera.Identity is null ? identified : ++identified,
+                ScanPhase.Identifying);
+            progress?.Report(update);
+            return camera;
+        }));
+    }
+
+    private static string DescribeIdentificationFailure(Exception error) => error switch
+    {
+        OnvifException { IsAuthenticationFailure: true } => "sign-in failed (check the ONVIF credentials)",
+        OnvifException { StatusCode: HttpStatusCode.NotFound } => "no ONVIF service (not a camera?)",
+        OnvifException onvif => $"ONVIF error (HTTP {(int)onvif.StatusCode})",
+        _ => "no ONVIF response",
+    };
 
     /// <summary>Re-probe the known cameras in scope that didn't answer the sweep, with a longer timeout,
     /// so one dropped connection attempt doesn't report an online camera missing. Only those few

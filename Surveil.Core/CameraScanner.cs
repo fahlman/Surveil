@@ -3,7 +3,11 @@ using System.Net.Sockets;
 
 namespace Surveil.Core;
 
-public readonly record struct ScanProgress(int Scanned, int Total, int Found);
+public enum ScanPhase { Probing, Identifying }
+
+/// <summary>While probing: addresses tried and how many answered. While identifying: devices signed
+/// into and how many were identified.</summary>
+public readonly record struct ScanProgress(int Scanned, int Total, int Found, ScanPhase Phase = ScanPhase.Probing);
 
 public interface ICameraScanner
 {
