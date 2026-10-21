@@ -6,11 +6,8 @@ on:
       - "Surveil.Core/**"
       - "Surveil.Core.Tests/**"
       - ".github/workflows/dotnet.yml"
+  # No paths filter: main requires the `test` check, so it must report on every PR.
   pull_request:
-    paths:
-      - "Surveil.Core/**"
-      - "Surveil.Core.Tests/**"
-      - ".github/workflows/dotnet.yml"
   workflow_dispatch:
 
 permissions:

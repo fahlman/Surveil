@@ -15,9 +15,6 @@ Surveil is a native **C# / .NET** application for Windows.
 - **WinUI 3 desktop app** *(in progress)* — the UI shell that consumes
   `Surveil.Core`.
 
-> An earlier Tauri/Rust prototype was removed; the C# port is the sole
-> implementation going forward.
-
 ## Implemented so far
 
 - Building, named-range, camera, and inventory models
